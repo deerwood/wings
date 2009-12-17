@@ -222,12 +222,12 @@ change_event_handler(?SDL_KEYUP, ?SDL_IGNORE) ->
     wxWindow:disconnect(get(gl_canvas), key_up).
 
 read_events(Eq0) ->
-    read_events(Eq0, 0).
+    read_events(Eq0, 2).
 
 read_events(Eq, Wait) ->
     receive
 	Ev = #wx{} ->
-	    read_events(enter_event(Ev, Eq));
+	    read_events(queue:in(Ev, Eq));
 	{timeout,Ref,{event,Event}} when is_reference(Ref) ->
 	    {Event,Eq};
 	External = {external, _} ->
@@ -236,36 +236,51 @@ read_events(Eq, Wait) ->
 	    read_out(Eq)
     end.
 
-enter_event(#wx{event=#wxPaint{}}, Eq) ->
-    queue:in(redraw, Eq);
-enter_event(#wx{event=Ev=#wxMouse{}}, Eq) ->
-    queue:in(sdl_mouse(Ev), Eq);
-enter_event(#wx{event=Ev=#wxKey{}}, Eq) ->
-    queue:in(sdl_key(Ev), Eq);
-enter_event(#wx{event=#wxClose{}}, Eq) ->
-    queue:in(quit, Eq);
-enter_event(#wx{event=#wxSize{size={W,H}}}, Eq) ->
-    queue:in(#resize{w=W,h=H}, Eq);
-enter_event(Ev, Eq) ->
-    io:format("~p: Ignored ~p~n",[?MODULE, Ev]),
-    Eq.
-
 read_out(Eq0) ->
     case queue:out(Eq0) of
-	{{value,#mousemotion{}=Event},Eq} ->
+	{{value,#wx{event=#wxMouse{}}=Event},Eq} ->
 	    read_out(Event, Eq);
+	{{value,#wx{event=#wxPaint{}}=Event},Eq} ->
+	    read_out(Event, Eq);
+	{{value,#wx{event=#wxSize{}}=Event},Eq} ->
+	    read_out(Event, Eq);
+	{{value,#wx{} = Event},Eq} ->
+	    {wx_translate(Event),Eq};
 	{{value,Event},Eq} ->
 	    {Event,Eq};
 	{empty,Eq} ->
 	    read_events(Eq, infinity)
     end.
 
-read_out(Motion, Eq0) ->
+read_out(Event=#wx{event=Rec1}, Eq0) ->
     case queue:out(Eq0) of
-	{{value,#mousemotion{}=Event},Eq} ->
+	{{value,New=#wx{event=Rec2}},Eq} 
+	  when element(2,Rec1) =:= element(2,Rec2) -> 
+	    read_out(New, Eq);
+	{{value,#wx{event=Rec2}},Eq} 	
+	  when element(2,Rec1) =:= size, 
+	       element(2,Rec2) =:= paint -> 
+	    %% wx sends along a paint with each size event.	    
 	    read_out(Event, Eq);
-	_Other -> {Motion,Eq0}
+	{empty,_Eq} ->
+	    {wx_translate(Event),Eq0};
+	_Other ->
+	    {wx_translate(Event),Eq0}
     end.
+
+wx_translate(#wx{event=#wxPaint{}}) ->
+    redraw;
+wx_translate(#wx{event=Ev=#wxMouse{}}) ->
+    sdl_mouse(Ev);
+wx_translate(#wx{event=Ev=#wxKey{}}) ->
+    sdl_key(Ev);
+wx_translate(#wx{event=#wxClose{}}) ->
+    quit;
+wx_translate(#wx{event=#wxSize{size={W,H}}}) ->
+    #resize{w=W,h=H};
+wx_translate(Ev) ->
+    io:format("~p: Bug Ignored Event~p~n",[?MODULE, Ev]),
+    redraw.
 
 sdl_mouse(#wxMouse{type=Type,
 		   x = X, y = Y,
