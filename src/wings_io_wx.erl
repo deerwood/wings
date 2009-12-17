@@ -93,7 +93,7 @@ build_cursors() ->
      {arrow, wxCursor:new(?wxCURSOR_ARROW)},
      {hourglass, wxCursor:new(?wxCURSOR_WAIT)},
      {eyedropper, wxCursor:new(?wxCURSOR_QUESTION_ARROW)}, %% :-/  Fix me
-     {blank, wxCursor:new(?wxCURSOR_BLANK)}
+     {blank, blank(wxCursor:new(?wxCURSOR_BLANK))}
     ].
 
 %% TODO
@@ -105,9 +105,24 @@ eyedropper() ->
     set_cursor(eyedropper),
     ok.
 
+blank(PreDef) ->
+    case wxCursor:ok(PreDef) of
+	true -> PreDef;
+	false ->
+	    wxCursor:destroy(PreDef),
+	    Image = wxImage:new(16,16),
+	    Black = <<0:(16*16*3*8)>>,
+	    wxImage:setData(Image, Black),
+	    wxImage:setMaskColour(Image, 0,0,0),
+	    wxImage:setMask(Image),	    
+	    Cursor = wxCursor:new(Image),
+	    wxImage:destroy(Image),
+	    Cursor
+    end.
+	
 set_cursor(CursorId) ->
     #io{cursors=Cursors} = get_state(),
-    Cursor = proplists:get_value(CursorId, Cursors),
+    Cursor = proplists:get_value(CursorId, Cursors),    
     wxWindow:setCursor(get(gl_canvas),Cursor),
     ok.
 
@@ -141,6 +156,8 @@ reset_grab() ->
     Io = get_state(),
     put_state(Io#io{grab_count=0}),
     %%sdl_mouse:showCursor(true),
+    Before = get(wm_cursor),
+    put(wm_cursor, arrow),    
     set_cursor(arrow),
     wxWindow:releaseMouse(get(gl_canvas)).
 
@@ -148,6 +165,7 @@ grab() ->
     %%io:format("Grab mouse~n", []),
     #io{grab_count=Cnt} = Io = get_state(),
     %%sdl_mouse:showCursor(false),
+    put(wm_cursor, blank),
     set_cursor(blank),
     do_grab(Cnt),
     put_state(Io#io{grab_count=Cnt+1}).
@@ -172,6 +190,7 @@ ungrab(X, Y) ->
 		0 ->
 		    wxWindow:releaseMouse(get(gl_canvas)),
 		    warp(X, Y),
+		    put(wm_cursor, arrow),
 		    set_cursor(arrow),
 		    no_grab;
 		_ ->
