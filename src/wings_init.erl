@@ -162,15 +162,15 @@ init() ->
     put(top_frame, Frame),
     put(gl_canvas, Canvas),
 
-%%     Redraw = fun(Ev,_) ->    %% Might be needed on windows
-%% 		     DC = wxPaintDC:new(Canvas),
-%% 		     wings ! Ev,
-%% 		     wxPaintDC:destroy(DC)
-%% 	     end,
+    Redraw = fun(Ev,_) ->    %% Might be needed on windows
+		     DC = wxPaintDC:new(Frame),
+		     wings ! Ev,
+		     wxPaintDC:destroy(DC)
+	     end,
 
     wxWindow:connect(Frame, close_window),
-    %%wxWindow:connect(Canvas, paint, [{callback, Redraw}]),
-    wxWindow:connect(Canvas, paint, [{skip, true}]),
+    wxWindow:connect(Canvas, paint, [{callback, Redraw}]),
+    %%wxWindow:connect(Canvas, paint, [{skip, true}]),
     wxWindow:connect(Canvas, size),
     wxWindow:connect(Canvas, enter_window,
 		     [{callback, fun(_, _) ->
