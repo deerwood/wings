@@ -126,16 +126,19 @@ set_cursor(CursorId) ->
     wxWindow:setCursor(get(gl_canvas),Cursor),
     ok.
 
-get_mouse_state() ->
-    MS = wx_misc:getMouseState(),
-    #wxMouseState{x=X, y=Y,  %% integer()
-		  leftDown=Left,
-		  middleDown=Middle,
-		  rightDown=Right %% bool()
-		 } = MS,
-    {gui_state([{Left,   ?SDL_BUTTON_LMASK},
-		{Middle, ?SDL_BUTTON_MMASK},
-		{Right,  ?SDL_BUTTON_RMASK}], 0), X, Y}.
+get_mouse_state() ->    
+    wx:batch(fun() ->
+		     MS = wx_misc:getMouseState(),
+		     #wxMouseState{x=X0, y=Y0,  %% integer()
+				   leftDown=Left,
+				   middleDown=Middle,
+				   rightDown=Right %% bool()
+				  } = MS,
+		     {X,Y} = wxWindow:screenToClient(get(gl_canvas), {X0,Y0}),
+		     {gui_state([{Left,   ?SDL_BUTTON_LMASK},
+				 {Middle, ?SDL_BUTTON_MMASK},
+				 {Right,  ?SDL_BUTTON_RMASK}], 0), X, Y}
+	     end).
 
 gui_state([{true,What}|Rest],Acc) ->
     gui_state(Rest, What bor Acc);
@@ -156,8 +159,7 @@ reset_grab() ->
     Io = get_state(),
     put_state(Io#io{grab_count=0}),
     %%sdl_mouse:showCursor(true),
-    Before = get(wm_cursor),
-    put(wm_cursor, arrow),    
+    put(wm_cursor, arrow),
     set_cursor(arrow),
     wxWindow:releaseMouse(get(gl_canvas)).
 
@@ -166,17 +168,11 @@ grab() ->
     #io{grab_count=Cnt} = Io = get_state(),
     %%sdl_mouse:showCursor(false),
     put(wm_cursor, blank),
-    set_cursor(blank),
+    set_cursor(blank), 
     do_grab(Cnt),
     put_state(Io#io{grab_count=Cnt+1}).
 
 do_grab(0) ->
-    %% On MacOS X, we used to not do any grab. With newer versions of SDL,
-    %% it seems to works better if we do a grab.
-    %%
-    %% Good for Linux to read out any mouse events here.
-    %sdl_events:peepEvents(1, ?SDL_MOUSEMOTIONMASK),
-    %sdl_video:wm_grabInput(?SDL_GRAB_ON);
     wxWindow:captureMouse(get(gl_canvas));
 do_grab(_N) -> ok.
 
@@ -207,9 +203,7 @@ is_grabbed() ->
 warp(X, Y) ->
     wxWindow:warpPointer(get(top_frame), X, Y).
 
-
 %%% Memory
-
 get_buffer(Size,Type) ->
     wx:create_memory(mem_size(Type,Size)).
 
@@ -241,10 +235,20 @@ change_event_handler(?SDL_KEYUP, ?SDL_IGNORE) ->
     wxWindow:disconnect(get(gl_canvas), key_up).
 
 read_events(Eq0) ->
-    read_events(Eq0, 2).
+    read_events(Eq0, 0).
 
 read_events(Eq, Wait) ->
     receive
+	Ev = #wx{event=#wxKey{keyCode=Code}} ->
+	    case Code of
+		%% We don't want modifiers as keypresses,
+		%% we get it on windows
+		?WXK_ALT     -> read_events(Eq, Wait);
+		?WXK_SHIFT   -> read_events(Eq, Wait);
+		?WXK_CONTROL -> read_events(Eq, Wait);
+		_ ->
+		    read_events(queue:in(Ev, Eq))
+	    end;
 	Ev = #wx{} ->
 	    read_events(queue:in(Ev, Eq));
 	{timeout,Ref,{event,Event}} when is_reference(Ref) ->
@@ -252,7 +256,8 @@ read_events(Eq, Wait) ->
 	External = {external, _} ->
 	    read_events(queue:in(External, Eq))
     after Wait ->
-	    read_out(Eq)
+	    R = read_out(Eq),
+	    R
     end.
 
 read_out(Eq0) ->
@@ -281,23 +286,26 @@ read_out(Event=#wx{event=Rec1}, Eq0) ->
 	       element(2,Rec2) =:= paint -> 
 	    %% wx sends along a paint with each size event.	    
 	    read_out(Event, Eq);
-	{empty,_Eq} ->
-	    {wx_translate(Event),Eq0};
 	_Other ->
 	    {wx_translate(Event),Eq0}
     end.
 
-wx_translate(#wx{event=#wxPaint{}}) ->
+wx_translate(Event) ->
+    R = wx_translate_1(Event),
+    %%erlang:display(R),
+    R.
+
+wx_translate_1(#wx{event=#wxPaint{}}) ->
     redraw;
-wx_translate(#wx{event=Ev=#wxMouse{}}) ->
+wx_translate_1(#wx{event=Ev=#wxMouse{}}) ->
     sdl_mouse(Ev);
-wx_translate(#wx{event=Ev=#wxKey{}}) ->
+wx_translate_1(#wx{event=Ev=#wxKey{}}) ->
     sdl_key(Ev);
-wx_translate(#wx{event=#wxClose{}}) ->
+wx_translate_1(#wx{event=#wxClose{}}) ->
     quit;
-wx_translate(#wx{event=#wxSize{size={W,H}}}) ->
+wx_translate_1(#wx{event=#wxSize{size={W,H}}}) ->
     #resize{w=W,h=H};
-wx_translate(Ev) ->
+wx_translate_1(Ev) ->
     io:format("~p: Bug Ignored Event~p~n",[?MODULE, Ev]),
     redraw.
 
@@ -346,7 +354,6 @@ sdl_mouse(#wxMouse{type=Type,
 			 which=0, mod=ModState, x=X,y=Y}
     end.
 
-
 sdl_key(#wxKey{type=Type,controlDown = Ctrl, shiftDown = Shift,
 	       altDown = Alt, metaDown = Meta,
 	       keyCode = Code, uniChar = Uni, rawCode = Raw}) ->
@@ -365,17 +372,106 @@ sdl_key(#wxKey{type=Type,controlDown = Ctrl, shiftDown = Shift,
 lower(false, Char) -> string:to_lower(Char);
 lower(_, Char) -> Char.
 
-
 wx_key_map(?WXK_ALT) -> ?KMOD_ALT;
 wx_key_map(?WXK_F1) -> ?SDLK_F1;
 wx_key_map(?WXK_F2) -> ?SDLK_F2;
 wx_key_map(?WXK_F3) -> ?SDLK_F3;
+wx_key_map(?WXK_F4) -> ?SDLK_F4;
+wx_key_map(?WXK_F5) -> ?SDLK_F5;
+wx_key_map(?WXK_F6) -> ?SDLK_F6;
+wx_key_map(?WXK_F7) -> ?SDLK_F7;
+wx_key_map(?WXK_F8) -> ?SDLK_F8;
+wx_key_map(?WXK_F9) -> ?SDLK_F9;
+wx_key_map(?WXK_F10) -> ?SDLK_F10;
+wx_key_map(?WXK_F11) -> ?SDLK_F11;
+wx_key_map(?WXK_F12) -> ?SDLK_F12;
+wx_key_map(?WXK_F13) -> ?SDLK_F13;
+wx_key_map(?WXK_F14) -> ?SDLK_F14;
+wx_key_map(?WXK_F15) -> ?SDLK_F15;
+
+wx_key_map(?WXK_UP)    -> ?SDLK_UP;
+wx_key_map(?WXK_LEFT)  -> ?SDLK_LEFT;
+wx_key_map(?WXK_DOWN)  -> ?SDLK_DOWN;
+wx_key_map(?WXK_RIGHT) -> ?SDLK_RIGHT;
+
+%%wx_key_map(?WXK_DELETE) -> ?SDLK_DELETE; same
+wx_key_map(?WXK_INSERT) -> ?SDLK_INSERT;
+wx_key_map(?WXK_END) -> ?SDLK_END;
+wx_key_map(?WXK_HOME) -> ?SDLK_HOME;
+wx_key_map(?WXK_PAGEUP) -> ?SDLK_PAGEUP;
+wx_key_map(?WXK_PAGEDOWN) -> ?SDLK_PAGEDOWN;
+
+wx_key_map(?WXK_NUMPAD0) -> ?SDLK_KP0;
+wx_key_map(?WXK_NUMPAD1) -> ?SDLK_KP1;
+wx_key_map(?WXK_NUMPAD2) -> ?SDLK_KP2;
+wx_key_map(?WXK_NUMPAD3) -> ?SDLK_KP3;
+wx_key_map(?WXK_NUMPAD4) -> ?SDLK_KP4;
+wx_key_map(?WXK_NUMPAD5) -> ?SDLK_KP5;
+wx_key_map(?WXK_NUMPAD6) -> ?SDLK_KP6;
+wx_key_map(?WXK_NUMPAD7) -> ?SDLK_KP7;
+wx_key_map(?WXK_NUMPAD8) -> ?SDLK_KP8;
+wx_key_map(?WXK_NUMPAD9) -> ?SDLK_KP9;
+wx_key_map(?WXK_NUMPAD_MULTIPLY) -> ?SDLK_KP_MULTIPLY;
+wx_key_map(?WXK_NUMPAD_ADD)      -> ?SDLK_KP_PLUS;
+wx_key_map(?WXK_NUMPAD_SUBTRACT) -> ?SDLK_KP_MINUS;
+wx_key_map(?WXK_NUMPAD_DECIMAL)  -> ?SDLK_KP_PERIOD;
+wx_key_map(?WXK_NUMPAD_DIVIDE)   -> ?SDLK_KP_DIVIDE;
+wx_key_map(?WXK_NUMPAD_ENTER)    -> ?SDLK_KP_ENTER;
+
+wx_key_map(?WXK_WINDOWS_LEFT)  -> ?SDLK_LSUPER;
+wx_key_map(?WXK_WINDOWS_RIGHT) -> ?SDLK_RSUPER;
+%%wx_key_map(?) -> ?;
 wx_key_map(Code) -> Code.
 
 sdl_key_map(?KMOD_ALT) ->  ?WXK_ALT;
 sdl_key_map(?SDLK_F1)  ->  ?WXK_F1;
 sdl_key_map(?SDLK_F2)  ->  ?WXK_F2;
 sdl_key_map(?SDLK_F3)  ->  ?WXK_F3;
+sdl_key_map(?SDLK_F4)  ->  ?WXK_F4;
+sdl_key_map(?SDLK_F5)  ->  ?WXK_F5;
+sdl_key_map(?SDLK_F6)  ->  ?WXK_F6;
+sdl_key_map(?SDLK_F7)  ->  ?WXK_F7;
+sdl_key_map(?SDLK_F8)  ->  ?WXK_F8;
+sdl_key_map(?SDLK_F9)  ->  ?WXK_F9;
+sdl_key_map(?SDLK_F10)  ->  ?WXK_F10;
+sdl_key_map(?SDLK_F11)  ->  ?WXK_F11;
+sdl_key_map(?SDLK_F12)  ->  ?WXK_F12;
+sdl_key_map(?SDLK_F13)  ->  ?WXK_F13;
+sdl_key_map(?SDLK_F14)  ->  ?WXK_F14;
+sdl_key_map(?SDLK_F15)  ->  ?WXK_F15;
+
+sdl_key_map(?SDLK_UP)    -> ?WXK_UP;
+sdl_key_map(?SDLK_LEFT)  -> ?WXK_LEFT;
+sdl_key_map(?SDLK_DOWN)  -> ?WXK_DOWN;
+sdl_key_map(?SDLK_RIGHT) -> ?WXK_RIGHT;
+
+%%sdl_key_map(?SDLK_DELETE) -> ?WXK_DELETE; same
+sdl_key_map(?SDLK_INSERT) -> ?WXK_INSERT;
+sdl_key_map(?SDLK_END) -> ?WXK_END;
+sdl_key_map(?SDLK_HOME) -> ?WXK_HOME;
+sdl_key_map(?SDLK_PAGEUP) -> ?WXK_PAGEUP;
+sdl_key_map(?SDLK_PAGEDOWN) -> ?WXK_PAGEDOWN;
+
+sdl_key_map(?SDLK_KP0) -> ?WXK_NUMPAD0;
+sdl_key_map(?SDLK_KP1) -> ?WXK_NUMPAD1;
+sdl_key_map(?SDLK_KP2) -> ?WXK_NUMPAD2;
+sdl_key_map(?SDLK_KP3) -> ?WXK_NUMPAD3;
+sdl_key_map(?SDLK_KP4) -> ?WXK_NUMPAD4;
+sdl_key_map(?SDLK_KP5) -> ?WXK_NUMPAD5;
+sdl_key_map(?SDLK_KP6) -> ?WXK_NUMPAD6;
+sdl_key_map(?SDLK_KP7) -> ?WXK_NUMPAD7;
+sdl_key_map(?SDLK_KP8) -> ?WXK_NUMPAD8;
+sdl_key_map(?SDLK_KP9) -> ?WXK_NUMPAD9;
+sdl_key_map(?SDLK_KP_MULTIPLY) -> ?WXK_NUMPAD_MULTIPLY;
+sdl_key_map(?SDLK_KP_PLUS)      -> ?WXK_NUMPAD_ADD;
+sdl_key_map(?SDLK_KP_MINUS) -> ?WXK_NUMPAD_SUBTRACT;
+sdl_key_map(?SDLK_KP_PERIOD)  -> ?WXK_NUMPAD_DECIMAL;
+sdl_key_map(?SDLK_KP_DIVIDE)   -> ?WXK_NUMPAD_DIVIDE;
+sdl_key_map(?SDLK_KP_ENTER)    -> ?WXK_NUMPAD_ENTER;
+
+sdl_key_map(?SDLK_LSUPER)  -> ?WXK_WINDOWS_LEFT;
+sdl_key_map(?SDLK_RSUPER) -> ?WXK_WINDOWS_RIGHT;
+
 sdl_key_map(Key) -> Key.
 
 
