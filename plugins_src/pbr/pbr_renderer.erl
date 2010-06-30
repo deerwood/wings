@@ -10,7 +10,7 @@
 
 -include("e3d.hrl").
 
--export([init/1, render/2]).
+-export([init/1, start/2]).
 
 -record(renderer, 
 	{
@@ -24,5 +24,5 @@ init(Attrs) ->
 init_camera(Attrs) ->
     cam.
 
-render(Renderer, Scene) ->
+start(Renderer, Scene) ->
     ok.
