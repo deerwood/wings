@@ -18,11 +18,8 @@
 	}).
 
 init(Attrs) ->
-    Cam = init_camera(Attrs),
+    Cam = pbr_camera:init(Attrs),
     #renderer{cam = Cam}.
-
-init_camera(Attrs) ->
-    cam.
 
 start(Renderer, Scene) ->
     ok.

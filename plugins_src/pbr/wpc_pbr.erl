@@ -51,11 +51,11 @@ do_export(Attr, St) when is_list(Attr) ->
     %% Basic additional settings
     SubDivs = proplists:get_value(subdivisions, Attr, 0),
     %% Add Camera, lights to list
-    CameraInfo = 
-	%% [{Pos, Dir, Up}, Fov, Azimuth, Elevation, Track, Dist] = 
-	wpa:camera_info([pos_dir_up, fov, azimuth, elevation, 
-			 tracking, distance_to_aim]),
-    All = [{cam,CameraInfo}, {lights, wpa:lights(St)},
+    CameraAttr = [pos_dir_up, fov, hither, yon],
+    CV = wpa:camera_info(CameraAttr),
+    CameraInfo = lists:zip(CameraAttr, CV),
+    All = [{cam,CameraInfo}, 
+	   {lights, wpa:lights(St)},
 	   {subdivisions,SubDivs} | Attr],
     render(St, All).
 

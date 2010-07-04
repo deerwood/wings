@@ -28,6 +28,7 @@ endif
 
 MODULES= \
 	wpc_pbr \
+	pbr_camera \
 	pbr_renderer \
 	pbr_scene
 
