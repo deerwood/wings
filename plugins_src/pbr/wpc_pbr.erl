@@ -64,9 +64,7 @@ export_dialog() ->
     [wpa:dialog_template(?MODULE, export)].
 
 render(St, Opts) ->
-    Scene = pbr_scene:init(St, Opts),
-    Renderer = pbr_renderer:init(Opts),
-    pbr_renderer:start(Renderer, Scene),
+    pbr_renderer:init(St, Opts),
     keep.
 
 %% Helpers
