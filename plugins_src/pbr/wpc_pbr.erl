@@ -64,6 +64,7 @@ export_dialog() ->
     [wpa:dialog_template(?MODULE, export)].
 
 render(St, Opts) ->
+    io:format("~n~n Starting rendering:~n",[]),
     pbr_renderer:init(St, Opts),
     keep.
 

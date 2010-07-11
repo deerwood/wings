@@ -40,7 +40,7 @@ init(Attr, R=#renderer{}) ->
 	case proplists:get_value(camera_type, Attr, perspective) of
 	    perspective ->
 		Fov  = proplists:get_value(fov, CamProps),
-		e3d_transform:perspective(Fov/AspectRatio, Near, Far);
+		e3d_transform:perspective(Fov, Near, Far);
 	    ortho ->
 		e3d_transform:ortho(Near, Far)
 	end,

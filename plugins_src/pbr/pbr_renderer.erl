@@ -20,8 +20,8 @@
 
 init(St, Attrs) ->
     S0 = pbr_cl:init(#renderer{}),
-    S1 = pbr_scene:init(St, Attrs, S0),
-    S2 = pbr_camera:init(Attrs, S1),
+    S1 = pbr_camera:init(Attrs, S0),
+    S2 = pbr_scene:init(St, Attrs, S1),
     start(S2),
     pbr_cl:stop(S2).
 
@@ -41,19 +41,20 @@ ray_trace(Renderer, Hitpoints0) ->
     trace_rays(Rays, Hitpoints0, Renderer).
 
 trace_rays([], Hitpoints, _) -> Hitpoints;
-trace_rays(Rays0, Hitpoints0, Renderer) ->
+trace_rays(Rays0, Hitpoints0, Renderer = #renderer{scene=Scene}) ->
     {Buffer, Rays1}   = create_raybuffer(Rays0, ?MAX_RAYS, <<>>),
     {_RaysB, Hits}    = pbr_scene:intersect(Buffer, Renderer),
-    {Hitpoints, Rays} = update_hitpoints(Hits, Rays0, Rays1, Hitpoints0),
+    {Hitpoints, Rays} = update_hitpoints(Hits, Rays0, Rays1, Scene, Hitpoints0),
     trace_rays(Rays, Hitpoints, Renderer).
 
 update_hitpoints(<<_:12/binary, 16#FFFFFFFF:32, Rest/binary >>, 
-		 [{Pos,_}|Rays], Work, Hitpoints) -> %% Miss
-    update_hitpoints(Rest, Rays, Work, array:set(Pos, <<255:32>>, Hitpoints));
+		 [{Pos,_}|Rays], Work, Scene, Hitpoints) -> %% Miss
+    update_hitpoints(Rest, Rays, Work, Scene, array:set(Pos, <<255:32>>, Hitpoints));
 update_hitpoints(<<T:?F32,B1:?F32,B2:?F32,Face:?I32, Rest/binary>>,
-		 [{Pos,_}|Rays], Work, Hitpoints) -> %% Hit
-    update_hitpoints(Rest, Rays, Work, array:set(Pos, <<16#FFFFFFFF:32>>, Hitpoints));
-update_hitpoints(<<>>, _, Work, Hitpoints) ->
+		 [{Pos,_}|Rays], Work, Scene, Hitpoints0) -> %% Hit
+    Color = pbr_scene:diffuse(Face, Scene),    
+    update_hitpoints(Rest, Rays, Work, Scene, array:set(Pos, Color, Hitpoints0));
+update_hitpoints(<<>>, _, Work, _, Hitpoints) ->
     {Hitpoints, Work}.
    
 create_raybuffer([{_,#ray{o={OX,OY,OZ},d={DX,DY,DZ},n=N,f=F}}|Rest], No, Buff0) 
