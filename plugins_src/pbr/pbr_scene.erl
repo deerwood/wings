@@ -22,21 +22,23 @@
 	 get_mat
 	}).
 
--record(mesh, {we, fv, size, mats}).
+-record(mesh, {fv, size, mats}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-init(#st{shapes=Shapes, mat=Mats}, Opts, R = #renderer{cl=CL}) ->
-    Subdivs  = proplists:get_value(subdivisions, Opts, 0),
-    Wes = ?TC([ prepare_mesh(We, Subdivs, Mats)
+init(St = #st{shapes=Shapes}, Opts, R = #renderer{cl=CL}) ->
+    Subdivs  = proplists:get_value(subdivisions, Opts, 1),
+    Wes = ?TC([ prepare_mesh(We, Subdivs, St)
 		|| We <- gb_trees:values(Shapes),
 		   ?IS_VISIBLE(We#we.perm)]),
     RawData = [{Sz, fun(Face) -> 
-			    [V1,V2,V3] = array:get(Face, FV),
-			    {array:get(V1,We#we.vp),
-			     array:get(V2,We#we.vp),
-			     array:get(V3,We#we.vp)}
-		    end} 
-	       || #mesh{we=We,fv=FV,size=Sz} <- Wes],
+			    Skip = Face * 96,
+			    <<_:Skip/binary, 
+			      V1x:?F32, V1y:?F32, V1z:?F32, _:20/binary,
+			      V2x:?F32, V2y:?F32, V2z:?F32, _:20/binary,
+			      V3x:?F32, V3y:?F32, V3z:?F32, _/binary>> = FV,
+			    {{V1x,V1y,V1z}, {V2x,V2y,V2z}, {V3x,V3y,V3z}}
+		    end}
+	       || #mesh{fv=FV,size=Sz} <- Wes],
     F2M = array:from_list(lists:append([Mesh#mesh.mats || Mesh <- Wes])),
     GetMat = fun(Face) -> array:get(Face, F2M) end,
     AccelBin = ?TC(e3d_qbvh:init(RawData)),
@@ -45,24 +47,35 @@ init(#st{shapes=Shapes, mat=Mats}, Opts, R = #renderer{cl=CL}) ->
     R#renderer{scene=Scene}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-prepare_mesh(We0, SubDiv, Mtab) ->
-    %% test:debug(array:to_orddict(We0#we.vp), R#renderer.cam),
-    We = if SubDiv =:= 0 -> 
-		 We1 = wpa:triangulate(We0),
-		 wpa:vm_freeze(We1);
-	    true -> 
-		 We1 = wpa:vm_freeze(We0),
-		 We2 = sub_divide(SubDiv, We1),
-		 wpa:triangulate(We2)
-	 end,
-    Faces = wings_we:visible(We),
-    FV = [wings_face:vertices_cw(Face, We) || Face <- Faces],
-    Mats = [get_color(wings_facemat:face(Face, We),Mtab) || Face <- Faces],
-    #mesh{we=We, fv=array:from_list(FV), mats=Mats, size=length(Mats)}.
+prepare_mesh(We, SubDiv, St = #st{mat=Mtab}) ->
+    Options = [{smooth, true}, {subdiv, SubDiv}, {attribs, uv}],
+    Vab = wings_draw_setup:we(We, Options, St),
+    %% I know something about this implementation :-)
+    try 
+	#vab{face_vs={32,Vs}, face_sn={0,Ns}, mat_map=MatMap} = Vab,
+	%% Change Normals
+	Data = swap_normals(Vs, Ns, <<>>),
+	MM = lists:reverse(lists:keysort(3, MatMap)),
+	Mats = fix_matmap(MM, Mtab, []), %% This should be a tree?
+	#mesh{fv=Data, mats=Mats, size=byte_size(Vs) div 96}
+    catch _:badmatch ->
+	    erlang:error({?MODULE, internal_format_changed})
+    end.
 
-sub_divide(0, We) -> We;
-sub_divide(N, We) -> 
-    sub_divide(N-1, wings_subdiv:smooth(We)).
+swap_normals(<<Vs:12/binary, _:12/binary, Uv:8/binary, NextVs/binary>>, 
+	     <<Ns:12/binary, NextNs/binary>>, Acc) ->
+    swap_normals(NextVs, NextNs, <<Acc/binary, Vs/binary, Ns/binary, Uv/binary>>);
+swap_normals(<<>>,<<>>, Acc) -> Acc.
+
+fix_matmap([_MI={Mat, _, _Start, Count}|Mats], Mtab, Acc0) ->
+    Diff = get_color(Mat, Mtab),
+    Acc = append_color(Count div 3, Diff, Acc0),
+    fix_matmap(Mats, Mtab, Acc);
+fix_matmap([], _, Acc) -> Acc.
+
+append_color(N, Diff, Acc) when N > 0 ->
+    append_color(N-1, Diff, [Diff|Acc]);
+append_color(_, _, Acc) -> Acc.
 
 get_color(Name, Mats) ->
     Mat = gb_trees:get(Name, Mats),
