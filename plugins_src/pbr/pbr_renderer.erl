@@ -15,47 +15,66 @@
 
 -export([init/2]).
 
-%% -record(hp, 
-%% 	{photons 
+-record(s,
+	{renderer,
+	 hp}).
+
+-record(hp, 
+ 	{pos,
+	 n,
+	 photons=0,
+	 color
+	}).
 
 init(St, Attrs) ->
-    S0 = pbr_cl:init(#renderer{}),
+    S0 = pbr_cl:init(Attrs, #renderer{}),
     S1 = pbr_camera:init(Attrs, S0),
     S2 = pbr_scene:init(St, Attrs, S1),
-    start(S2),
-    pbr_cl:stop(S2).
+    spawn_link(fun() -> start(Attrs, S2) end).
 
-start(Renderer) ->
-    HitPoints0 = array:new(),
-    HT = ?TC(ray_trace(Renderer, HitPoints0)),
-    io:format("Done ~p rays ~p~n", [array:size(HT),
-				    pbr_camera:get_size(Renderer)]),
-    Image = erlang:iolist_to_binary(array:to_list(HT)),
-    show(Image, pbr_camera:get_size(Renderer)),
+start(Attrs, Renderer) ->
+    S0 = #s{renderer=Renderer},
+    S1 = init_hitpoints(S0),
+%%    HT = ?TC(ray_trace(Renderer, HitPoints0)),
+    %% io:format("Done ~p rays ~p~n", [array:size(HT),
+    %% 				    pbr_camera:get_size(Renderer)]),
+%    Image = erlang:iolist_to_binary(array:to_list(HT)),
+%    show(Image, pbr_camera:get_size(Renderer)),
+    pbr_cl:stop(Renderer),
+    normal.
+
+init_hitpoints(State0=#s{renderer=Renderer}) ->
+    HP0 = array:new([{default, #hp{}}]),
+    HP1 = cam_pass(HP0, State0),
+    BB  = pbr_scene:bb(Renderer),
     ok.
 
-ray_trace(Renderer, Hitpoints0) ->
+cam_pass(Hp0, #s{renderer=Renderer}) ->
     {W,H} = pbr_camera:get_size(Renderer),
     Rays = [{X+Y*W, pbr_camera:generate_ray(Renderer, float(X), float(Y))}
 	    || Y <- lists:seq(0, H-1), X <- lists:seq(0, W-1)],
-    trace_rays(Rays, Hitpoints0, Renderer).
+    trace_rays(Rays, Hp0, Renderer).
 
-trace_rays([], Hitpoints, _) -> Hitpoints;
-trace_rays(Rays0, Hitpoints0, Renderer = #renderer{scene=Scene}) ->
+trace_rays([], Hp, _) -> Hp;
+trace_rays(Rays0, Hp0, Renderer = #renderer{scene=Scene}) ->
     {Buffer, Rays1}   = create_raybuffer(Rays0, ?MAX_RAYS, <<>>),
     {_RaysB, Hits}    = pbr_scene:intersect(Buffer, Renderer),
-    {Hitpoints, Rays} = update_hitpoints(Hits, Rays0, Rays1, Scene, Hitpoints0),
-    trace_rays(Rays, Hitpoints, Renderer).
+    {Hp, Rays} = update_hitpoints(Hits, Rays0, Rays1, Scene, Hp0),
+    trace_rays(Rays, Hp, Renderer).
 
 update_hitpoints(<<_:12/binary, 16#FFFFFFFF:32, Rest/binary >>, 
-		 [{Pos,_}|Rays], Work, Scene, Hitpoints) -> %% Miss
-    update_hitpoints(Rest, Rays, Work, Scene, array:set(Pos, <<255:32>>, Hitpoints));
+		 [_|Rays], Work, Scene, Hp) -> %% Miss
+    update_hitpoints(Rest, Rays, Work, Scene, Hp);
 update_hitpoints(<<T:?F32,B1:?F32,B2:?F32,Face:?I32, Rest/binary>>,
-		 [{Pos,_}|Rays], Work, Scene, Hitpoints0) -> %% Hit
-    Color = pbr_scene:diffuse(Face, Scene),    
-    update_hitpoints(Rest, Rays, Work, Scene, array:set(Pos, Color, Hitpoints0));
-update_hitpoints(<<>>, _, Work, _, Hitpoints) ->
-    {Hitpoints, Work}.
+		 [{Pos,_}|Rays], Work, Scene, Hp0) -> %% Hit
+    Color = pbr_scene:diffuse(Face, Scene),
+    %% Check if diffuse
+    HitP0 = array:get(Pos, Hp0),
+    HitP  = HitP0#hp{pos=Pos, color=Color},
+    update_hitpoints(Rest, Rays, Work, Scene, 
+		     array:set(Pos, HitP, Hp0));
+update_hitpoints(<<>>, _, Work, _, Hp) ->
+    {Hp, Work}.
    
 create_raybuffer([{_,#ray{o={OX,OY,OZ},d={DX,DY,DZ},n=N,f=F}}|Rest], No, Buff0) 
   when No > 0 ->
@@ -72,5 +91,11 @@ create_raybuffer(Rays, _, Buff) ->
 show(Pixels, {W,H}) ->
     Image = #e3d_image{image=Pixels,width=W,height=H, 
 		       type=r8g8b8a8, bytes_pp=4},
-    Id = wings_image:new_temp(?__(2,"<<Render>>"), Image),
-    wings_image:window(Id).
+    ShowImage = 
+	fun(_) -> 
+		Id = wings_image:new_temp(?__(2,"<<Render>>"), Image),
+		wings_image:window(Id) 
+	end,	
+    wings ! {external, ShowImage},
+    ok.
+    

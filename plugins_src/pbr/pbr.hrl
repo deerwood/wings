@@ -13,6 +13,9 @@
 	  scene
 	}).
 
+-define(PI, 3.141592653589793).
+-define(INV_PI, 1/3.141592653589793).
+
 -define(RAY_SZ, 32).		                % Binary size of ray structure
 -define(RAYHIT_SZ, 16).				% Binary size of rayhit structure
 -define(RAYBUFFER_SZ, 65536).			% Max Buffer size

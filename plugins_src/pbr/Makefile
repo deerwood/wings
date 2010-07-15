@@ -30,8 +30,10 @@ MODULES= \
 	wpc_pbr \
 	pbr_camera \
 	pbr_cl \
+	pbr_light \
+	pbr_mc \
 	pbr_renderer \
-	pbr_scene
+	pbr_scene 
 
 TARGET_FILES= $(MODULES:%=$(EBIN)/%.beam)
 
