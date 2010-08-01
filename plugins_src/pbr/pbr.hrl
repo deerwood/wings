@@ -31,3 +31,13 @@
 
 %-define(F32, 32/float-native).
 -define(I32, 32/native).
+
+%% For sspm
+-record(hp, 
+ 	{pos,
+	 n,
+	 type,
+	 radius,
+	 photons=0,
+	 color
+	}).
