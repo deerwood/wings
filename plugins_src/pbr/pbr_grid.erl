@@ -17,27 +17,24 @@
 	 invCellSz,
 	 grid}).
 
-init(HitPointArray, MaxDist, {Min = {Nx,Ny,Nz},{Xx,Xy,Xz}}) ->
+init(HPs, MaxDist, {Min = {Nx,Ny,Nz},{Xx,Xy,Xz}}) ->
     InvCellSz = 1 / (math:sqrt(MaxDist)*2),
     MaxIndx = trunc((Xx-Nx) * InvCellSz),
     MaxIndy = trunc((Xy-Ny) * InvCellSz),
     MaxIndz = trunc((Xz-Nz) * InvCellSz),
     MaxI = {MaxIndx,MaxIndy, MaxIndz},
 
-    Add = fun(Index, #hp{type = surface, pos=Pos, radius=PhotonR2}, Grid) ->
+    Add = fun(Index, {Pos, PhotonR2}, Grid) ->
 		  R = math:sqrt(PhotonR2),
 		  Rad = {R,R,R},
 		  Bmin = e3d_vec:mul(e3d_vec:sub(e3d_vec:sub(Pos, Rad), Min),InvCellSz),
 		  Bmax = e3d_vec:mul(e3d_vec:sub(e3d_vec:add(Pos, Rad), Min),InvCellSz),
 		  Start = clamp_int(Bmin,MaxI),
 		  Stop  = clamp_int(Bmax, MaxI),
-		  add(Index, Start, Start, Stop, Grid);
-	     (_,_,Grid) ->
-		  Grid
+		  add(Index, Start, Start, Stop, Grid)
 	  end,
-
-    Grid0 = array:sparse_foldl(Add, array:new({default,[]}), HitPointArray),
     
+    Grid0 = pbr_hp:fold_surface(Add, array:new({default,[]}), HPs),
     Grid = list_to_tuple(array:to_list(Grid0)),
 
     #grid{bbMin = Min,
@@ -52,7 +49,7 @@ nearest(Point, #grid{bbMin=Min, invCellSz=InvCellSz, maxIndx={Mx,My,Mz}, grid=Gr
        Z < 0.0, Z > Mz -> [];
        true ->
 	    Hash = erlang:phash2(GridPos),
-	    array:get(Hash, Grid)
+	    element(Hash+1, Grid)
     end.
 
 clamp_int({X,Y,Z}, {Mx,My,Mz}) ->

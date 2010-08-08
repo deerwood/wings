@@ -71,12 +71,12 @@ sample_L(S=#spot{pos=LPos, intensity=I}, Point) ->
 sample_L(#point{pos=LPos, intensity=I}) ->
     Dir = pbr_mc:sample_sphere(sfmt:uniform(),sfmt:uniform()),
     Ray = #ray{o=LPos, d=Dir},
-    {I, Ray, pbr_mc:spere_pdf()};
+    {I, Ray, pbr_mc:sphere_pdf()};
 sample_L(S=#spot{pos=LPos, intensity=I, l2wq=L2Wq, cos_w_max=CosW}) ->
     Vec = pbr_mc:sample_cone(sfmt:uniform(),sfmt:uniform(),CosW),
     Dir = e3d_q:vec_rotate(Vec, L2Wq),
     Ray = #ray{o=LPos, d=Dir},
-    {e3d_vec:mul(I,spot_falloff(S,Dir)), Ray, pbr_mc:cone_pdf()}.
+    {e3d_vec:mul(I,spot_falloff(S,Dir)), Ray, pbr_mc:cone_pdf(CosW)}.
 
 
 %%--------------------------------------------------------------------

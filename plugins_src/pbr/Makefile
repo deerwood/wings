@@ -30,7 +30,10 @@ MODULES= \
 	wpc_pbr \
 	pbr_camera \
 	pbr_cl \
+	pbr_grid \
+	pbr_hp \
 	pbr_light \
+	pbr_mat \
 	pbr_mc \
 	pbr_renderer \
 	pbr_scene 

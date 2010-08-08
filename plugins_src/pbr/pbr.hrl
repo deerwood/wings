@@ -23,21 +23,17 @@
 
 -define(RAY_EPS, 0.00001).			% Error margin
 
+-define(PHOTONS_PER_PASS, 100000).
+-define(MAX_PHOTON_DEPTH, 3).
+-define(MAX_EYE_DEPTH, 2).
+
+-define(PPM_ALPHA, 0.7).
+
 -record(ray, 
 	{o,					% Origo
 	 d,					% Dir
 	 n,					% Near = mint
 	 f}).					% Far  = maxt
 
-%-define(F32, 32/float-native).
+%%-define(F32, 32/float-native).    % Defined in wings.hrl
 -define(I32, 32/native).
-
-%% For sspm
--record(hp, 
- 	{pos,
-	 n,
-	 type,
-	 radius,
-	 photons=0,
-	 color
-	}).
