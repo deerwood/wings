@@ -8,10 +8,11 @@
 %%%-------------------------------------------------------------------
 -module(pbr_light).
 
--export([new/2, 
-	 sample_all_lights/1,	 
+-export([create_lookup/1, lookup_id/2, init/2,
+	 new/2, get_light/2, get_infinite_light/1,
+	 sample_all_lights/1,
 	 sample_L/1, sample_L/2,
-	 pdf/1, power/1
+	 pdf/1, le/2, power/1
 	]).
 
 -include("pbr.hrl").
@@ -21,6 +22,40 @@
 
 -record(point, {pos, intensity}).
 -record(spot,  {pos, l2wq, intensity, dir, cos_w_max, cos_fall_start}).
+
+%%--------------------------------------------------------------------
+%% @doc
+%% @spec create_lookup([]) -> {array(), proplist()}
+%% @end
+%%--------------------------------------------------------------------
+
+create_lookup(Ls) ->
+    La = array:from_list(Ls),
+    Lookup = array:foldr(fun(Id, {Light,_}, Acc) ->
+				 [{Light, Id}|Acc]
+			 end, [], La),
+    {La, gb_trees:from_orddict(Lookup)}.
+
+lookup_id(Name, {_, Lookup}) ->
+    gb_trees:get(Name, Lookup).
+
+%% Input is returned from create_lookup/1
+init({La, _}, WBB) ->
+    array:map(fun(_, {_Name, LO}) -> 
+		      L = proplists:get_value(opengl,LO),
+		      init_light(proplists:get_value(type, L), L,WBB) 
+	      end, La).
+
+init_light(point, L, WBB) ->
+    Pos = proplists:get_value(pos, L),
+    Intensity = 1.0,
+    new({point, Pos, Intensity}, WBB).
+
+get_light(Id, Ls) ->
+    array:get(Id, Ls).
+
+get_infinite_light(Ls) ->
+    false.
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -96,6 +131,15 @@ power(#spot{intensity=I, cos_w_max=CosW, cos_fall_start=CosF}) ->
 %%--------------------------------------------------------------------
 pdf(_) ->
     0.0.
+
+%%--------------------------------------------------------------------
+%% @doc  
+%% @spec le(Light) -> spectrum().
+%% @end
+%%--------------------------------------------------------------------
+le(_Light, _Ray) ->
+    {0.0,0.0,0.0}.
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 spot_falloff(#spot{dir=Dir, cos_w_max=CosW, cos_fall_start=CosF}, Wi) ->

@@ -14,10 +14,11 @@
 -export([init/3,
 	 intersect/2,
 	 get_lights/1,
+	 get_infinite_light/1,
 	 get_face_info/6,
 	 bb/1]).
 
--export([diffuse/2]).
+-export([coord_sys/1]).
 
 -record(scene, 
 	{info,
@@ -35,8 +36,12 @@
 	      }).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-init(St = #st{shapes=Shapes}, Opts, R = #renderer{cl=CL}) ->
-    {Size,Data,F2M} = ?TC(prepare_mesh(gb_trees:values(Shapes),Opts,St,[],[])),
+init(St = #st{shapes=Shapes,mat=Mtab0}, Opts, R = #renderer{cl=CL}) ->
+    Lights0 = proplists:get_value(lights, Opts),
+    Lights  = pbr_light:create_lookup(Lights0),
+    Mtab    = pbr_mat:init(Mtab0),
+    {Size,Data,F2M} = ?TC(prepare_mesh(gb_trees:values(Shapes),Opts,
+				       Mtab,Lights,St,[],[])),
     GetTri = fun(Face) -> 
 		     Skip = Face * 96,
 		     <<_:Skip/binary, 
@@ -66,8 +71,8 @@ init(St = #st{shapes=Shapes}, Opts, R = #renderer{cl=CL}) ->
 			    mat = array:get(Face, F2M)}
 	      end,
     AccelBin = {WBB,_,_,_} = ?TC(e3d_qbvh:init([{Size,GetTri}])),
-    Lights = proplists:get_value(lights, Opts),
-    Scene = #scene{info=GetFace, lights=Lights, world_bb=WBB},
+
+    Scene = #scene{info=GetFace, lights=pbr_light:init(Lights, WBB), world_bb=WBB},
     R#renderer{scene=init_accel(CL, AccelBin, Scene)}.
 
 %% Returns world bounding box
@@ -78,14 +83,17 @@ bb(#renderer{scene=#scene{world_bb=WBB}}) ->
 get_lights(#renderer{scene=#scene{lights=Ls}}) ->
     Ls.
 
+get_infinite_light(#renderer{scene=#scene{lights=Ls}}) ->
+    pbr_light:get_infinite_light(Ls).
+
 %% Given Rayhit info return face info:
 %%  {HitPoint, Material, SurfaceColor, Normal, ShadingNormal} 
-%%   | light | {transparent, HitPoint}
+%%   | {light, lightId} | {transparent, HitPoint}
 get_face_info(#ray{o=RayO,d=RayD},T,B1,B2,FId,
 	      #renderer{scene=#scene{info=GetFace}}) ->
     #face{vs=Vs,ns=Ns,uvs=UVs,vcs=VCs,mat=Mat} = GetFace(FId),
     case pbr_mat:is_light(Mat) of
-	true -> light;
+	true -> {light, Mat};
 	false -> 
 	    Point = e3d_vec:add_prod(RayO, RayD, T),
 	    B0 = 1.0 - B1 - B2,
@@ -99,7 +107,7 @@ get_face_info(#ray{o=RayO,d=RayD},T,B1,B2,FId,
 		    {Point, Mat, SC0, N, ShadeN};
 		TexCol = {_,_,_,A} ->
 		    SC = pbr_mat:smul(SC0,TexCol),
-		    case A =:= 0.0 orelse A < sftm:uniform() of
+		    case A =:= 0.0 orelse A < sfmt:uniform() of
 			true ->
 			    {transparent, Point};
 			false ->
@@ -122,17 +130,18 @@ intersect({NoRays, RaysBin}, #renderer{scene=Scene, cl=CL}) ->
     {Rays, Result}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-prepare_mesh([We|Wes], Opts, St = #st{mat=Mtab}, AccData, MatList)
+prepare_mesh([We = #we{name=Name}|Wes], Opts, Mtab, Ls, St, AccData, MatList)
   when ?IS_VISIBLE(We#we.perm) ->
     IsLight = ?IS_ANY_LIGHT(We),
-    SubDiv  = case IsLight of 
-		  true when ?IS_AREA_LIGHT(We) ->
-		      0; %% Don't subdiv area light (option?)
-		  true -> 
-		      3; %% Subdiv the point lights to be round
-		  false ->
-		      proplists:get_value(subdivisions, Opts, 1)
-	      end,
+    {SubDiv,LightId}  = 
+	case IsLight of 
+	    true when ?IS_AREA_LIGHT(We) -> %% Don't subdiv area light (option?)
+		{0, pbr_light:lookup_id(Name,Ls)}; 
+	    true -> %% Subdiv the point lights to be round 
+		{3, pbr_light:lookup_id(Name,Ls)}; 
+	    false ->
+		{proplists:get_value(subdivisions, Opts, 1),false}
+	end,
     Options = [{smooth, true}, {subdiv, SubDiv}, {attribs, uv}],
     Vab = wings_draw_setup:we(We, Options, St),
     %% I know something about this implementation :-)
@@ -141,14 +150,14 @@ prepare_mesh([We|Wes], Opts, St = #st{mat=Mtab}, AccData, MatList)
 	    %% Change Normals
 	    Data = swap_normals(Vs, Ns, <<>>),
 	    MM = lists:reverse(lists:keysort(3, MatMap)),
-	    Mats = fix_matmap(MM, Mtab, []), %% This should be a tree?
-	    prepare_mesh(Wes, Opts, St, [Data|AccData], [Mats|MatList])
+	    Mats = fix_matmap(MM, LightId, Mtab, []), %% This should be a tree?
+	    prepare_mesh(Wes, Opts, Mtab, Ls, St, [Data|AccData], [Mats|MatList])
     catch _:badmatch ->
 	    erlang:error({?MODULE, vab_internal_format_changed})
     end;
-prepare_mesh([_|Wes], Opts, St, AccData, MatList) ->
-    prepare_mesh(Wes, Opts, St, AccData, MatList);
-prepare_mesh([], _, _, AccData, MatList) ->
+prepare_mesh([_|Wes], Opts, Mtab, Ls, St, AccData, MatList) ->
+    prepare_mesh(Wes, Opts, Mtab, Ls, St, AccData, MatList);
+prepare_mesh([], _, _, _, _, AccData, MatList) ->
     Bin = list_to_binary(AccData),
     {byte_size(Bin) div 96, Bin, array:from_list(lists:append(MatList))}.
     						       
@@ -157,23 +166,18 @@ swap_normals(<<Vs:12/binary, _:12/binary, Uv:8/binary, NextVs/binary>>,
     swap_normals(NextVs, NextNs, <<Acc/binary, Vs/binary, Ns/binary, Uv/binary>>);
 swap_normals(<<>>,<<>>, Acc) -> Acc.
 
-fix_matmap([_MI={Mat, _, _Start, Count}|Mats], Mtab, Acc0) ->
-    Diff = get_color(Mat, Mtab),
-    Acc  = append_color(Count div 3, Diff, Acc0),
-    fix_matmap(Mats, Mtab, Acc);
-fix_matmap([], _, Acc) -> Acc.
+fix_matmap([_MI={Name, _, _Start, Count}|Mats], false, Mtab, Acc0) ->
+    Mat = gb_trees:get(Name, Mtab),
+    Acc = append_color(Count div 3, Mat, Acc0),
+    fix_matmap(Mats, false, Mtab, Acc);
+fix_matmap([_MI={_, _, _Start, Count}|Mats], LightId, Mtab, Acc0) ->
+    Acc  = append_color(Count div 3, LightId, Acc0),
+    fix_matmap(Mats, LightId, Mtab, Acc);
+fix_matmap([], _, _, Acc) -> Acc.
 
 append_color(N, Diff, Acc) when N > 0 ->
     append_color(N-1, Diff, [Diff|Acc]);
 append_color(_, _, Acc) -> Acc.
-
-get_color(Name, Mats) ->
-    Mat = gb_trees:get(Name, Mats),
-    OpenGL = proplists:get_value(opengl, Mat),
-    proplists:get_value(diffuse, OpenGL).
-
-diffuse(Face, #scene{get_mat=GetMat}) ->
-    GetMat(Face).
 
 init_accel(CL, {_BB, Qnodes, Qtris, _Map}, Scene) ->
     Kernel  = pbr_cl:compile(CL, "qbvh_kernel.cl"),

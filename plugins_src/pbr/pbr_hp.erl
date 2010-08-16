@@ -33,7 +33,10 @@
 	}).
 
 new(_Size, MaxRad2) ->
-    array:new([{default, #hp{rad=MaxRad2}}]).
+    Black = pbr_mat:snew(),
+    array:new([{default, #hp{rad=MaxRad2, a_radiance=Black,
+			     refl=Black,  a_refl=Black
+			    }}]).
     
 update_const(Pos, _Type, Spectrum, Hps) ->
     Hp = #hp{a_radiance=R0} = array:get(Pos, Hps),

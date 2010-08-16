@@ -8,7 +8,9 @@
 
 -module(pbr_mat).
 
--export([sdiv/2, smul/2, sadd/2, snew/0, sample_f/4, lookup/3, is_light/1]).
+-export([snew/0, sdiv/2, smul/2, sadd/2, sY/1,
+	 init/1,
+	 sample_f/4, f/4, lookup/3, is_light/1, is_diffuse/1]).
 -include("pbr.hrl").
 
 %% Spectrum functions
@@ -33,17 +35,59 @@ sadd({R,G,B}, {X,Y,Z})
        is_float(X), is_float(Y), is_float(Z) ->
     {R+X,G+Y,B+Z}.
 
+sY({R,G,B}) ->
+    0.212671 * R + 0.715160 * G + 0.072169 * B.
+
+%%%%%%%%%%%
+
+-record(material, 
+	{mod = ?MODULE,				% Module info
+	 m_info,				% Term module specific
+	 diff_map,				% Color map
+	 norm_map	 			% Normal map
+	}).
+
+-record(m_info, {kd, kdOverPi}).
+    
 %% Material functions
-sample_f(Material, RayD, N, ShadeN) ->
-    %% Fixme
-    Spectrum = {0.8,0.8,0.8},
-    Wi = e3d_vec:cross(e3d_vec:neg(RayD), ShadeN),
-    Pdf = 0.8,
+init(Mtab) ->
+    Converted = [{Id, create_mat(WMat)} || 
+		    {Id,WMat} <- gb_trees:to_list(Mtab)],
+    gb_trees:from_orddict(Converted).
+
+create_mat(WM) ->
+    OpenGL = proplists:get_value(opengl, WM),
+    {R,G,B,_}   = proplists:get_value(diffuse, OpenGL),
+    Maps   = proplists:get_value(maps, WM),
+    #material{m_info=#m_info{kd={R,G,B}, kdOverPi=smul({R,G,B}, ?INV_PI)}}.
+    
+sample_f(#material{mod=?MODULE, m_info=#m_info{kdOverPi=KdOPi}}, 
+	 _RayD, _N, ShadeN = {NX,NY,NZ}) ->
+    {X,Y,Z} = pbr_mc:sample_hemisphere(sfmt:uniform(), sfmt:uniform()),
+    Pdf = Z * ?INV_PI,
+    
+    {{V1X,V1Y,V1Z}, {V2X,V2Y,V2Z}} = pbr_scene:coord_sys(ShadeN),
+    Wi = {V1X * X + V2X * Y + NX * Z,
+	  V1Y * X + V2Y * Y + NY * Z,
+	  V1Z * X + V2Z * Y + NZ * Z},
+
+    Dp = e3d_vec:dot(ShadeN, Wi),
     SpecBounce = false,
-    {Spectrum, Wi, Pdf, SpecBounce}.
+    case Dp =< 0.0001 of
+	true -> 
+	    {snew(), Wi, 0.0, SpecBounce};
+	false ->	    
+	    {KdOPi, Wi, Pdf / Dp, SpecBounce}
+    end.
+
+f(#material{mod=?MODULE, m_info=#m_info{kdOverPi=KdOPi}}, _W0,_Wi, _N) ->
+    KdOPi.
+
+is_diffuse(#material{mod=?MODULE}) ->
+    true.
 
 is_light(Material) ->
-    false.
+    is_integer(Material).
 
 %% Texture functions
 lookup(Mat, UV, Type) ->

@@ -15,13 +15,8 @@
 
 -export([init/2]).
 
-%TODO
-{{pbr_hp,add_flux,5},{pbr_mat,f,4}},
-{{pbr_hp,splat_radiance,3},{pbr_film,splat,3}},
-{{pbr_renderer,update_hitpoints,5},{pbr_light,get_light,2}},
-{{pbr_renderer,update_hitpoints,5},{pbr_light,le,2}},
-{{pbr_renderer,update_hitpoints,5},{pbr_mat,is_diffuse,1}},
-{{pbr_renderer,update_hitpoints,5},{pbr_scene,get_infinite_light,1}},
+%% %TODO
+%% {{pbr_hp,splat_radiance,3},{pbr_film,splat,3}},
 
 -record(s,
 	{renderer,				% Render state
@@ -39,20 +34,30 @@ init(St, Attrs) ->
     S0 = pbr_cl:init(Attrs, #renderer{}),
     S1 = pbr_camera:init(Attrs, S0),
     S2 = pbr_scene:init(St, Attrs, S1),
-    spawn_link(fun() -> start(Attrs, S2) end).
+    spawn(fun() -> 
+		  try 
+		      normal = start(Attrs, S2) 
+		  catch _:Err ->
+			  io:format("Renderer crashed: ~p~n ~p~n",  
+				    [Err, erlang:get_stacktrace()])
+		  end
+	  end).
 
 start(Attrs, Renderer) ->
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     Scale = proplists:get_value(photon_radius_scale, Attrs, 1.0),
     {BBmin,BBmax}  = pbr_scene:bb(Renderer),
     {Sx,Sy,Sz} = e3d_vec:sub(BBmax, BBmin),
-    {W, H} = pbr_camera:get_size(Renderer),
+    {W, H} = pbr_camera:get_size(Renderer), 
     PhotonRadius = Scale * ((Sx+Sy+Sz) / 3.0) / ((W+H)/2) *2,
     PRad2 = PhotonRadius * PhotonRadius,
-    
+        
     S1 = init_hitpoints(#s{renderer=Renderer,     
 			   hp = pbr_hp:new(W*H, PRad2),
 			   max_rad2 = PRad2}),
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     S2 = init_photon_pass(S1),
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     loop(S2),
     
 %%    HT = ?TC(ray_trace(Renderer, HitPoints0)),
@@ -65,6 +70,7 @@ start(Attrs, Renderer) ->
     
 loop(S0) ->
     S1 = photon_passes(S0),
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     S2 = accum_flux(S1),
     S3 = eval_hitpoints(S2),
     S4 = init_hitpoints(S3),
@@ -82,9 +88,11 @@ photon_passes(S0) ->
     photon_passes(0, S0).
 photon_passes(N, S = #s{renderer=R, ps=Ps0, lup=Lup, hp=Hp0}) 
   when N < ?PHOTONS_PER_PASS ->
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     {Buffer, []} = create_raybuffer(Ps0, ?MAX_RAYS, <<>>),
     {_, Hits} = pbr_scene:intersect(Buffer, R),
     {Count, Ps, Hp} = photon_pass(Ps0, Hits, R, Lup, Hp0, 0, []),
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     photon_passes(Count+N, S#s{ps=Ps, hp=Hp});
 photon_passes(Count, S=#s{no_p=Ps}) ->
     S#s{no_p=Ps+Count}.
@@ -115,7 +123,7 @@ photon_pass([{Ray=#ray{d=RayD},Flux,Depth}|Ps],
 		    photon_pass(Ps, Rest, R, Lup, Hp, New+1, [PPath|Acc]);
 		true ->
 		    F  = pbr_mat:smul(F0, SurfaceCol),
-		    Rand = sftm:uniform(),
+		    Rand = sfmt:uniform(),
 		    if Depth < 1 orelse SpecBounce ->
 			    PFlux = pbr_mat:smul(Flux, pbr_mat:smul(F,Fpdf)),
 			    PPath = {{PFlux, Depth+1}, #ray{o=Point,d=Wi}},
@@ -156,8 +164,10 @@ init_photon_path(Renderer) ->
 
 %% Cam to hitpoint pass
 init_hitpoints(State0=#s{renderer=Renderer, hp=HP0, max_rad2=Rad2}) ->
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     HP1 = cam_pass(HP0, State0),
     BB  = pbr_scene:bb(Renderer),
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     G0  = pbr_grid:init(HP1, Rad2, BB),
     State0#s{hp=HP1, lup=G0}.
 
@@ -171,8 +181,8 @@ cam_pass(Hp0, #s{renderer=Renderer}) ->
 
 trace_rays([], Hp, _) -> Hp;
 trace_rays(Rays0, Hp0, Renderer) ->
-    {Buffer, Rays1}   = create_raybuffer(Rays0, ?MAX_RAYS, <<>>),
-    {_RaysB, Hits}    = pbr_scene:intersect(Buffer, Renderer),
+    {Buffer, Rays1} = create_raybuffer(Rays0, ?MAX_RAYS, <<>>),
+    {_RaysB, Hits}  = pbr_scene:intersect(Buffer, Renderer),
     {Hp, Rays} = update_hitpoints(Hits, Rays0, Rays1, Renderer, Hp0),
     trace_rays(Rays, Hp, Renderer).
 
@@ -194,7 +204,7 @@ update_hitpoints(<<T:?F32,B1:?F32,B2:?F32,Face:?I32, Rest/binary>>,
 	{transparent, Point} ->
 	    update_hitpoints(Rest,Rays, [{Ray#ray{o=Point},Pos,Depth,TP}|Work], R, Hp0);
 	{light, LightId} ->
-	    Light = pbr_light:get_light(LightId,R),
+	    Light = pbr_light:get_light(LightId,pbr_scene:get_lights(R)),
 	    TPd = pbr_mat:smul(pbr_light:le(Light, Ray), TP),
 	    Hp  = pbr_hp:update_const(Pos, light, TPd, Hp0),
 	    update_hitpoints(Rest, Rays, Work, R, Hp);

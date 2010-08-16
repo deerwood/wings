@@ -35,12 +35,14 @@ init(HPs, MaxDist, {Min = {Nx,Ny,Nz},{Xx,Xy,Xz}}) ->
 	  end,
     
     Grid0 = pbr_hp:fold_surface(Add, array:new({default,[]}), HPs),
-    Grid = list_to_tuple(array:to_list(Grid0)),
+    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
+    io:format("Array Size ~p ~n", [array:size(Grid0)]),
+    %%Grid = list_to_tuple(array:to_list(Grid0)),
 
     #grid{bbMin = Min,
 	  invCellSz = InvCellSz,
 	  maxIndx = MaxI,
-	  grid = Grid}.
+	  grid = Grid0}.
 
 nearest(Point, #grid{bbMin=Min, invCellSz=InvCellSz, maxIndx={Mx,My,Mz}, grid=Grid}) ->
     GridPos = {X,Y,Z} = e3d_vec:mul(e3d_vec:sub(Point, Min), InvCellSz),
@@ -49,7 +51,8 @@ nearest(Point, #grid{bbMin=Min, invCellSz=InvCellSz, maxIndx={Mx,My,Mz}, grid=Gr
        Z < 0.0, Z > Mz -> [];
        true ->
 	    Hash = erlang:phash2(GridPos),
-	    element(Hash+1, Grid)
+	    array:get(Hash, Grid)	    
+	    %%element(Hash+1, Grid)
     end.
 
 clamp_int({X,Y,Z}, {Mx,My,Mz}) ->
