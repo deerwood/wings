@@ -25,7 +25,7 @@
 -define(RAY_EPS, 0.00001).			% Error margin
 -define(RAY_INFINITY, 3.402823e+38).            % 32 bits float max
 
--define(PHOTONS_PER_PASS, 100000).
+-define(PHOTONS_PER_PASS, 500000).
 -define(MAX_PHOTON_DEPTH, 3).
 -define(MAX_EYE_DEPTH, 2).
 

@@ -45,33 +45,30 @@ init(St, Attrs) ->
 	  end).
 
 start(Attrs, Renderer) ->
-    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     Scale = proplists:get_value(photon_radius_scale, Attrs, 1.0),
     {BBmin,BBmax}  = pbr_scene:bb(Renderer),
     {Sx,Sy,Sz} = e3d_vec:sub(BBmax, BBmin),
     {W, H} = pbr_camera:get_size(Renderer), 
-    PhotonRadius = Scale * ((Sx+Sy+Sz) / 3.0) / ((W+H)/2) *2,
+    PhotonRadius = Scale * ((Sx+Sy+Sz) / 3.0) / 20, %((W+H)/2) *2,
     PRad2 = PhotonRadius * PhotonRadius,
-        
-    S1 = init_hitpoints(#s{renderer=Renderer,     
+    io:format("BB ~p ~p~n", [BBmin,BBmax]),
+    io:format("R ~p MR2 ~p~n", [PhotonRadius, PRad2]),
+    S1 = init_hitpoints(#s{renderer=Renderer,
 			   hp = pbr_hp:new(W*H, PRad2),
 			   max_rad2 = PRad2}),
     S2 = init_photon_pass(S1),
     io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
-    loop(S2),
-    
+    loop(S2),    
     pbr_cl:stop(Renderer),
     normal.
     
 loop(S0) ->
-    S1 = photon_passes(S0),
-    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
-    S2 = accum_flux(S1),
-    S3 = eval_hitpoints(S2),
-    pbr_film:show(S3#s.renderer),
-    io:format("Show called ~p mem ~p kb ~n",
-	      [?LINE, erlang:process_info(self(), memory)]),
-    S4 = init_hitpoints(S3),
+    S1 = ?TC(photon_passes(S0)),
+    S2 = ?TC(accum_flux(S1)),
+    S3 = ?TC(eval_hitpoints(S2)),
+    ?TC(pbr_film:show(S3#s.renderer)),
+    S4 = ?TC(init_hitpoints(S3)),
+    io:format("~p mem ~p kb ~n", [?LINE, element(2,erlang:process_info(self(), memory)) div 1024]),
     loop(S4).
 
 accum_flux(S = #s{hp=Hp}) ->
@@ -121,11 +118,11 @@ photon_pass([{Ray=#ray{d=RayD},Flux,Depth}|Ps],
 		    Rand = sfmt:uniform(),
 		    if Depth < 1 orelse SpecBounce ->
 			    PFlux = pbr_mat:smul(Flux, pbr_mat:smul(F,Fpdf)),
-			    PPath = {{PFlux, Depth+1}, #ray{o=Point,d=Wi}},
+			    PPath = {#ray{o=Point,d=Wi}, PFlux, Depth+1},
 			    photon_pass(Ps,Rest,R,Lup,Hp,New,[PPath|Acc]);
 		       Rand < 0.7 -> %% Russian Roulette
 			    PFlux = pbr_mat:smul(Flux, pbr_mat:smul(F,Fpdf/0.7)),
-			    PPath = {{PFlux, Depth+1}, #ray{o=Point,d=Wi}},
+			    PPath = {#ray{o=Point,d=Wi}, PFlux, Depth+1},
 			    photon_pass(Ps,Rest,R,Lup,Hp,New,[PPath|Acc]);
 		       true ->
 			    PPath = init_photon_path(R),
@@ -136,10 +133,10 @@ photon_pass([{Ray=#ray{d=RayD},Flux,Depth}|Ps],
 photon_pass([], <<>>, _R, _Lup, Hp, New, Acc) -> 
     {New, Acc, Hp}.
 
-add_flux(Point, RayD, Flux, Lup, Hp) ->
+add_flux(Point, RayD, Flux, Lup, Hp) -> 
     HPs = pbr_grid:nearest(Point, Lup),
     pbr_hp:add_flux(HPs, Point, e3d_vec:neg(RayD), Flux, Hp).
-   
+
 %% init_photon_pass
 init_photon_pass(S = #s{renderer=R}) ->
     Photons = init_photon_pass(0, R, []),
@@ -161,7 +158,6 @@ init_photon_path(Renderer) ->
 init_hitpoints(State0=#s{renderer=Renderer, hp=HP0, max_rad2=Rad2}) ->
     HP1 = cam_pass(HP0, State0),
     BB  = pbr_scene:bb(Renderer),
-    io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
     G0  = pbr_grid:init(HP1, Rad2, BB),
     State0#s{hp=HP1, lup=G0}.
 
@@ -207,7 +203,7 @@ update_hitpoints(<<T:?F32,B1:?F32,B2:?F32,Face:?I32, Rest/binary>>,
 	    IsNotDiffuse = not pbr_mat:is_diffuse(Mat),
 	    if 
 		Fpdf =:= 0.0, F0 =:= {0.0,0.0,0.0} -> %% Black
-		    Hp = pbr_hp:update_const(Pos, surface, pbr_mat:snew(), Hp0),
+		    Hp = pbr_hp:update_const(Pos, black_surface, pbr_mat:snew(), Hp0),
 		    update_hitpoints(Rest, Rays, Work, R, Hp);
 		SpecBounce, IsNotDiffuse ->
 		    case Depth > ?MAX_EYE_DEPTH of
@@ -216,7 +212,7 @@ update_hitpoints(<<T:?F32,B1:?F32,B2:?F32,Face:?I32, Rest/binary>>,
 			    Bounce = {#ray{o=Point, d=Wi}, Pos, Depth+1, TPd},
 			    update_hitpoints(Rest, Rays, [Bounce|Work], R, Hp0);
 			true ->
-			    Hp = pbr_hp:update_const(Pos, surface, pbr_mat:snew(), Hp0),
+			    Hp = pbr_hp:update_const(Pos, max_bounce, pbr_mat:snew(), Hp0),
 			    update_hitpoints(Rest, Rays, Work, R, Hp)
 		    end;
 		true ->

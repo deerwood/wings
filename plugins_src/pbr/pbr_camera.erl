@@ -27,7 +27,7 @@
 
 init(Attr, R=#renderer{}) ->
     CamProps = proplists:get_value(cam, Attr),
-    {XRes, YRes} = proplists:get_value(resolution, Attr, {512,256}),
+    {XRes, YRes} = proplists:get_value(resolution, Attr, {256,256}),
     {Pos,Dir,Up} = proplists:get_value(pos_dir_up, CamProps),
     %% io:format("Pos Dir Up ~p ~p~n", [(Pos), (Dir)]),
     World2Cam = e3d_transform:lookat(Pos, e3d_vec:add(Pos,Dir), Up),

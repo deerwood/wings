@@ -34,14 +34,15 @@
 
 new(_Size, MaxRad2) ->
     Black = pbr_mat:snew(),
+    io:format("MaxR2 ~p~n",[MaxRad2]),
     array:new([{default, #hp{rad=MaxRad2, a_radiance=Black,
 			     refl=Black,  a_refl=Black
 			    }}]).
     
-update_const(Pos, _Type, Spectrum, Hps) ->
+update_const(Pos, Type, Spectrum, Hps) ->
     Hp = #hp{a_radiance=R0} = array:get(Pos, Hps),
     R = pbr_mat:sadd(R0, Spectrum),
-    array:set(Pos, Hp#hp{a_radiance=R, type=const}, Hps).
+    array:set(Pos, Hp#hp{a_radiance=R, type=Type}, Hps).
     
 update_hit(Pos, Point, Mat, Color, W0, N, Hps) ->
     Hp0 = array:get(Pos, Hps),
@@ -53,11 +54,13 @@ add_flux([Id|Ids], Point, Wi, PFlux, Hps) ->
     #hp{pos=Pos, rad=R, w0=W0, n=N, mat=Mat, color=Color, 
 	a_photons=AP, a_refl=AR0} = Hp0,
     case e3d_vec:dist_sqr(Point, Pos) > R of
-	true  -> add_flux(Ids, Point, Wi, PFlux, Hps);
+	true  -> 
+	    add_flux(Ids, Point, Wi, PFlux, Hps);
 	false ->
-	    Dot =  e3d_vec:dot(Wi, N),
+	    Dot = e3d_vec:dot(Wi, N),
 	    case Dot =< 0.00001 of
-		true  -> add_flux(Ids, Point, Wi, PFlux, Hps);
+		true -> 
+		    add_flux(Ids, Point, Wi, PFlux, Hps);
 		false -> 
 		    MatF = pbr_mat:f(Mat, W0, Wi, N),
 		    Flux = pbr_mat:smul(pbr_mat:smul(PFlux, MatF),
@@ -66,7 +69,9 @@ add_flux([Id|Ids], Point, Wi, PFlux, Hps) ->
 		    HPA = array:set(Id, Hp0#hp{a_photons=AP+1, a_refl=AR}, Hps),
 		    add_flux(Ids, Point, Wi, PFlux, HPA)
 	    end
-    end.
+    end;
+add_flux([], _, _, _, Hps) ->
+    Hps.
 
 accum_flux(Hp) ->
     Count = fun(_Id, Hit = #hp{type=surface, rad=R2, photons=PC, a_photons=APC,
