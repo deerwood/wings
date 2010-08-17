@@ -27,7 +27,7 @@
 	 rad,					% Radius of hitpoint
 	 photons=0,				% Number of photons
 	 refl,					% Reflected spectrum
-	 a_photons,				% Acc Photons
+	 a_photons=0,				% Acc Photons
 	 a_radiance,				% Static radiance
 	 a_refl					% Acc Refl spectrum
 	}).
@@ -71,12 +71,17 @@ add_flux([Id|Ids], Point, Wi, PFlux, Hps) ->
 accum_flux(Hp) ->
     Count = fun(_Id, Hit = #hp{type=surface, rad=R2, photons=PC, a_photons=APC,
 			       refl=Refl, a_refl=ARefl, c_surf=SC}) ->
-		    Count = PC+APC,
-		    G = ?PPM_ALPHA * Count / (PC*?PPM_ALPHA + APC),
-		    Flux = pbr_mat:smul(pbr_mat:sadd(Refl, ARefl), G),
-		    Rad = R2*G,
-		    Hit#hp{rad=Rad, a_photons=0, refl=Flux, a_refl=pbr_mat:snew(),
-			   c_surf=SC+1};
+		    case PC > 0 of
+			true ->
+			    Count = PC+APC,
+			    G = ?PPM_ALPHA * Count / (PC*?PPM_ALPHA + APC),
+			    Flux = pbr_mat:smul(pbr_mat:sadd(Refl, ARefl), G),
+			    Rad = R2*G,
+			    Hit#hp{rad=Rad, a_photons=0, refl=Flux, 
+				   a_refl=pbr_mat:snew(), c_surf=SC+1};
+			false ->
+			    Hit
+		    end;
 	       (_, Hit = #hp{c_const=SC}) ->
 		    Hit#hp{c_const=SC+1}
 	    end,
@@ -91,15 +96,17 @@ fold_surface(Fun, Acc, Hps) ->
     array:sparse_foldl(F1, Acc, Hps).
 
 splat_radiance(TotalPhotons, Renderer, Hp) ->
+    Film0 = pbr_film:get_raw(Renderer),
     F = fun(Index, HP=#hp{rad=R2}, {R0, MaxR2}) ->
-		Radiance = calc_radiance(TotalPhotons, HP),
+		Radiance = calc_radiance(HP, TotalPhotons),
 		{pbr_film:splat(Index, Radiance, R0), max(R2,MaxR2)}
 	end,
-    array:foldl(F, {Renderer,0.0}, Hp).
+    {Film, MaxR2} = array:foldl(F, {Film0,0.0}, Hp),
+    {pbr_film:set_raw(Film, Renderer), MaxR2}.    
 
 calc_radiance(#hp{c_const=0, c_surf=0}, _) ->
     {0.0,0.0,0.0};
 calc_radiance(#hp{c_const=CC, c_surf=CS, rad=Rad, a_radiance=AR, refl=Refl}, Total) ->
     Count = CC+CS,
     K = 1.0 / (?PI * Rad * Total),
-    pbr_mat:sdiv(pbr_mat:sadd(AR,pbr_mat:smul(CS*K,Refl)), Count).
+    pbr_mat:sdiv(pbr_mat:sadd(AR,pbr_mat:smul(Refl,CS*K)), Count).

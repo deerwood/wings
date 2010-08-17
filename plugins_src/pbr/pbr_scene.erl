@@ -88,14 +88,14 @@ get_infinite_light(#renderer{scene=#scene{lights=Ls}}) ->
 
 %% Given Rayhit info return face info:
 %%  {HitPoint, Material, SurfaceColor, Normal, ShadingNormal} 
-%%   | {light, lightId} | {transparent, HitPoint}
+%%   | {light, HitPoint, lightId} | {transparent, HitPoint}
 get_face_info(#ray{o=RayO,d=RayD},T,B1,B2,FId,
 	      #renderer{scene=#scene{info=GetFace}}) ->
     #face{vs=Vs,ns=Ns,uvs=UVs,vcs=VCs,mat=Mat} = GetFace(FId),
+    Point = e3d_vec:add_prod(RayO, RayD, T),
     case pbr_mat:is_light(Mat) of
-	true -> {light, Mat};
+	true -> {light, Point, Mat};
 	false -> 
-	    Point = e3d_vec:add_prod(RayO, RayD, T),
 	    B0 = 1.0 - B1 - B2,
 	    SC0 = i_col(B0,B1,B2,VCs),
 	    N = e3d_vec:normal(Vs),

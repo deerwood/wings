@@ -47,9 +47,10 @@ init({La, _}, WBB) ->
 	      end, La).
 
 init_light(point, L, WBB) ->
-    Pos = proplists:get_value(pos, L),
-    Intensity = 1.0,
-    new({point, Pos, Intensity}, WBB).
+    Pos = proplists:get_value(position, L),
+    {IR,IG,IB,_} = proplists:get_value(diffuse, L),
+    io:format("~p ~n",[L]),
+    new({point, Pos, {IR,IG,IB}}, WBB).
 
 get_light(Id, Ls) ->
     array:get(Id, Ls).
@@ -80,9 +81,9 @@ new({spot,Pos,Dir0,Intensity, Width, Falloff}, _WBB) ->
 %%--------------------------------------------------------------------
 
 sample_all_lights(Lights) ->
-    N = length(Lights),
+    N = array:size(Lights),
     U = sfmt:uniform(),
-    Light = lists:nth(U*N+1, Lights),
+    Light = array:get(trunc(U*N), Lights),
     {Light, 1.0/N}.
 
 %%--------------------------------------------------------------------

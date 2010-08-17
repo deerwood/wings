@@ -10,7 +10,8 @@
 	{
 	  cl,
 	  cam,
-	  scene
+	  scene,
+	  film
 	}).
 
 -define(PI, 3.141592653589793).
@@ -22,6 +23,7 @@
 -define(MAX_RAYS, ?RAYBUFFER_SZ div ?RAY_SZ).   % Max number of rays
 
 -define(RAY_EPS, 0.00001).			% Error margin
+-define(RAY_INFINITY, 3.402823e+38).            % 32 bits float max
 
 -define(PHOTONS_PER_PASS, 100000).
 -define(MAX_PHOTON_DEPTH, 3).
@@ -32,8 +34,8 @@
 -record(ray, 
 	{o,					% Origo
 	 d,					% Dir
-	 n,					% Near = mint
-	 f}).					% Far  = maxt
+	 n=?RAY_EPS,				% Near = mint
+	 f=?RAY_INFINITY}).			% Far  = maxt
 
 %%-define(F32, 32/float-native).    % Defined in wings.hrl
 -define(I32, 32/native).

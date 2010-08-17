@@ -30,6 +30,7 @@ MODULES= \
 	wpc_pbr \
 	pbr_camera \
 	pbr_cl \
+	pbr_film \
 	pbr_grid \
 	pbr_hp \
 	pbr_light \
@@ -39,6 +40,8 @@ MODULES= \
 	pbr_scene 
 
 TARGET_FILES= $(MODULES:%=$(EBIN)/%.beam)
+
+HEADER_FILES= pbr.hrl
 
 # ----------------------------------------------------
 # FLAGS
@@ -68,7 +71,7 @@ clean:
 	rm -f $(TARGET_FILES)
 	rm -f core
 
-$(TARGET_FILES): 
+$(TARGET_FILES): $(HEADER_FILES)
 
 $(EBIN)/%.beam: $(ESRC)/%.erl
 	$(ERLC) $(ERL_COMPILE_FLAGS) -o$(EBIN) $<

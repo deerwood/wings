@@ -18,17 +18,17 @@ snew() ->
     {0.0,0.0,0.0}.
 
 sdiv({R,G,B}, S) 
-  when is_float(R), is_float(G), is_float(B), is_float(S) ->
+  when is_float(R), is_float(G), is_float(B) ->
     {R/S,G/S,B/S}.
-		     
-smul({R,G,B}, S) 
-  when is_float(R), is_float(G), is_float(B), is_float(S) ->
-    {R*S,G*S,B*S};
 
 smul({R,G,B}, {X,Y,Z}) 
   when is_float(R), is_float(G), is_float(B), 
        is_float(X), is_float(Y), is_float(Z) ->
-    {R*X,G*Y,B*Z}.
+    {R*X,G*Y,B*Z};
+		     
+smul({R,G,B}, S) 
+  when is_float(R), is_float(G), is_float(B) ->
+    {R*S,G*S,B*S}.
 
 sadd({R,G,B}, {X,Y,Z}) 
   when is_float(R), is_float(G), is_float(B), 
