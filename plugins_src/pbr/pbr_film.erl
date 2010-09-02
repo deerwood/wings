@@ -36,9 +36,10 @@ splat(Index, Splat, Raw) ->
 show(#renderer{film=#f{raw=Raw, res={W,H}}}) ->
     Pixels = array:foldl(fun(_, {R,G,B}, Acc) ->
     				 <<Acc/binary, 
-    				   (trunc(R/255)):8,
-    				   (trunc(G/255)):8, 
-    				   (trunc(B/255)):8,255:8>>
+    				   (trunc(255*R)):8,
+    				   (trunc(255*G)):8, 
+    				   (trunc(255*B)):8,
+				   255:8>>
     			 end, <<>>, Raw),
     Image = #e3d_image{image=Pixels,width=W,height=H, 
     		       type=r8g8b8a8, bytes_pp=4},
