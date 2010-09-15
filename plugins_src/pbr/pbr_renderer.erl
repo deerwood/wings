@@ -37,9 +37,10 @@ init(St, Attrs) ->
     S3 = pbr_film:init(Attrs, S2),
     spawn(fun() -> 
 		  try 
+		      register(wings_preview, self()),
 		      normal = start(Attrs, S3) 
 		  catch _:Err ->
-			  io:format("Renderer crashed: ~p~n ~p~n",  
+			  io:format("Renderer crashed: ~p~n ~p~n",
 				    [Err, erlang:get_stacktrace()])
 		  end
 	  end).
@@ -49,7 +50,7 @@ start(Attrs, Renderer) ->
     {BBmin,BBmax}  = pbr_scene:bb(Renderer),
     {Sx,Sy,Sz} = e3d_vec:sub(BBmax, BBmin),
     {W, H} = pbr_camera:get_size(Renderer), 
-    PhotonRadius = Scale * ((Sx+Sy+Sz) / 3.0) / 20, %((W+H)/2) *2,
+    PhotonRadius = Scale * ((Sx+Sy+Sz) / 3.0) / 100, %((W+H)/2) *2,
     PRad2 = PhotonRadius * PhotonRadius,
     io:format("BB ~p ~p~n", [BBmin,BBmax]),
     io:format("R ~p MR2 ~p~n", [PhotonRadius, PRad2]),
@@ -58,7 +59,8 @@ start(Attrs, Renderer) ->
 			   max_rad2 = PRad2}),
     S2 = init_photon_pass(S1),
     io:format("~p mem ~p kb ~n",[?LINE, erlang:process_info(self(), memory)]),
-    loop(S2),    
+    loop(S2),  
+    io:format("Stopping the renderer~n~n",[]),
     pbr_cl:stop(Renderer),
     normal.
     
@@ -69,13 +71,16 @@ loop(S0) ->
     ?TC(pbr_film:show(S3#s.renderer)),
     S4 = ?TC(init_hitpoints(S3)),
     io:format("~p mem ~p kb ~n", [?LINE, element(2,erlang:process_info(self(), memory)) div 1024]),
-    loop(S4).
+    receive stop -> ok
+    after 0 -> loop(S4)
+    end.
 
 accum_flux(S = #s{hp=Hp}) ->
     S#s{hp=pbr_hp:accum_flux(Hp)}.
 
 eval_hitpoints(S = #s{renderer=R0, hp=Hp, no_p=TotalPhotons}) ->
     {R, MaxRadius} = pbr_hp:splat_radiance(TotalPhotons, R0, Hp),
+    io:format("Total photons: ~p Max radius ~f~n",[TotalPhotons, MaxRadius]),
     S#s{renderer=R, max_rad2=MaxRadius}.
      
 %% Photon pass
@@ -115,14 +120,18 @@ photon_pass([{Ray=#ray{d=RayD},Flux,Depth}|Ps],
 		    photon_pass(Ps, Rest, R, Lup, Hp, New+1, [PPath|Acc]);
 		true ->
 		    F  = pbr_mat:smul(F0, SurfaceCol),
+		    PFlux = pbr_mat:smul(Flux, pbr_mat:smul(F,Fpdf)),
+		    IsBlack = pbr_mat:s_is_black(PFlux),
 		    Rand = sfmt:uniform(),
-		    if Depth < 1 orelse SpecBounce ->
-			    PFlux = pbr_mat:smul(Flux, pbr_mat:smul(F,Fpdf)),
+		    if IsBlack -> 
+			    PPath = init_photon_path(R),
+			    photon_pass(Ps,Rest,R,Lup,Hp,New+1,[PPath|Acc]);
+		       Depth < 1 orelse SpecBounce ->
 			    PPath = {#ray{o=Point,d=Wi}, PFlux, Depth+1},
 			    photon_pass(Ps,Rest,R,Lup,Hp,New,[PPath|Acc]);
 		       Rand < 0.7 -> %% Russian Roulette
-			    PFlux = pbr_mat:smul(Flux, pbr_mat:smul(F,Fpdf/0.7)),
-			    PPath = {#ray{o=Point,d=Wi}, PFlux, Depth+1},
+			    PFluxRR = pbr_mat:smul(PFlux, 1.0/0.7),
+			    PPath = {#ray{o=Point,d=Wi}, PFluxRR, Depth+1},
 			    photon_pass(Ps,Rest,R,Lup,Hp,New,[PPath|Acc]);
 		       true ->
 			    PPath = init_photon_path(R),
@@ -132,6 +141,13 @@ photon_pass([{Ray=#ray{d=RayD},Flux,Depth}|Ps],
     end;
 photon_pass([], <<>>, _R, _Lup, Hp, New, Acc) -> 
     {New, Acc, Hp}.
+
+init_photon_path(Renderer) ->
+    Ls = pbr_scene:get_lights(Renderer),
+    {Light, Lpdf} = pbr_light:sample_all_lights(Ls),
+    {Flux0, Ray, Pdf} = pbr_light:sample_L(Light),
+    Flux = pbr_mat:sdiv(Flux0,(Lpdf*Pdf)),
+    {Ray, Flux, 0}.
 
 add_flux(Point, RayD, Flux, Lup, Hp) -> 
     HPs = pbr_grid:nearest(Point, Lup),
@@ -147,13 +163,6 @@ init_photon_pass(N, R, Acc) when N < ?MAX_RAYS ->
     init_photon_pass(N+1, R, [Photon|Acc]);
 init_photon_pass(_, _, Acc) -> Acc.
 
-init_photon_path(Renderer) ->
-    Ls = pbr_scene:get_lights(Renderer),
-    {Light, Lpdf} = pbr_light:sample_all_lights(Ls),
-    {Flux0, Ray, Pdf} = pbr_light:sample_L(Light),
-    Flux = pbr_mat:sdiv(Flux0,(Lpdf*Pdf)),
-    {Ray, Flux, 0}.
-
 %% Cam to hitpoint pass
 init_hitpoints(State0=#s{renderer=Renderer, hp=HP0, max_rad2=Rad2}) ->
     HP1 = cam_pass(HP0, State0),
@@ -164,7 +173,9 @@ init_hitpoints(State0=#s{renderer=Renderer, hp=HP0, max_rad2=Rad2}) ->
 cam_pass(Hp0, #s{renderer=Renderer}) ->
     {W,H} = pbr_camera:get_size(Renderer),
     Spectrum = {1.0,1.0,1.0},
-    Rays = [{pbr_camera:generate_ray(Renderer, float(X), float(Y)),
+    Rays = [{pbr_camera:generate_ray(Renderer, 
+				     float(X)+sfmt:uniform(), 
+				     float(Y)+sfmt:uniform()),
 	     X+Y*W,0,Spectrum}
 	    || Y <- lists:seq(0, H-1), X <- lists:seq(0, W-1)],
     trace_rays(Rays, Hp0, Renderer).
@@ -181,7 +192,9 @@ update_hitpoints(<<_:12/binary, 16#FFFFFFFF:32, Rest/binary >>,
     %% Miss, check background
     Troughput = 
 	case pbr_scene:get_infinite_light(R) of
-	    false -> pbr_mat:snew();
+	    false -> 
+		{1.0, 0.0, 0.0};   %DEBUG
+		%% pbr_mat:snew();
 	    Light -> 
 		pbr_mat:smul(pbr_light:le(Light, Ray),TP)
 	end,

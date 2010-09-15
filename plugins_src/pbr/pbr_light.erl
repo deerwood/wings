@@ -50,7 +50,8 @@ init_light(point, L, WBB) ->
     Pos = proplists:get_value(position, L),
     {IR,IG,IB,_} = proplists:get_value(diffuse, L),
     io:format("~p ~n",[L]),
-    new({point, Pos, {IR,IG,IB}}, WBB).
+    I = 1.0,
+    new({point, Pos, {IR*I,IG*I,IB*I}}, WBB).
 
 get_light(Id, Ls) ->
     array:get(Id, Ls).
@@ -138,6 +139,8 @@ pdf(_) ->
 %% @spec le(Light) -> spectrum().
 %% @end
 %%--------------------------------------------------------------------
+le(#point{intensity=I}, _Ray) ->
+    I;
 le(_Light, _Ray) ->
     {0.0,0.0,0.0}.
 

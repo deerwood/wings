@@ -76,13 +76,13 @@ add_flux([], _, _, _, Hps) ->
 accum_flux(Hp) ->
     Count = fun(_Id, Hit = #hp{type=surface, rad=R2, photons=PC, a_photons=APC,
 			       refl=Refl, a_refl=ARefl, c_surf=SC}) ->
-		    case PC > 0 of
+		    case APC > 0 of
 			true ->
 			    Count = PC+APC,
 			    G = ?PPM_ALPHA * Count / (PC*?PPM_ALPHA + APC),
 			    Flux = pbr_mat:smul(pbr_mat:sadd(Refl, ARefl), G),
 			    Rad = R2*G,
-			    Hit#hp{rad=Rad, a_photons=0, refl=Flux, 
+			    Hit#hp{rad=Rad, a_photons=0, refl=Flux, photons=Count,
 				   a_refl=pbr_mat:snew(), c_surf=SC+1};
 			false ->
 			    Hit
@@ -102,12 +102,17 @@ fold_surface(Fun, Acc, Hps) ->
 
 splat_radiance(TotalPhotons, Renderer, Hp) ->
     Film0 = pbr_film:get_raw(Renderer),
-    F = fun(Index, HP=#hp{rad=R2}, {R0, MaxR2}) ->
+    F = fun(Index, HP=#hp{type=Type, rad=R2}, {R0, MaxR2}) ->
 		Radiance = calc_radiance(HP, TotalPhotons),
-		{pbr_film:splat(Index, Radiance, R0), max(R2,MaxR2)}
+		case Type of
+		    surface -> 
+			{pbr_film:splat(Index, Radiance, R0), max(R2,MaxR2)};
+		    _ ->
+			{pbr_film:splat(Index, Radiance, R0), MaxR2}
+		end
 	end,
     {Film, MaxR2} = array:foldl(F, {Film0,0.0}, Hp),
-    {pbr_film:set_raw(Film, Renderer), MaxR2}.    
+    {pbr_film:set_raw(Film, Renderer), MaxR2}.
 
 calc_radiance(#hp{c_const=0, c_surf=0}, _) ->
     {0.0,0.0,0.0};
@@ -115,3 +120,8 @@ calc_radiance(#hp{c_const=CC, c_surf=CS, rad=Rad, a_radiance=AR, refl=Refl}, Tot
     Count = CC+CS,
     K = 1.0 / (?PI * Rad * Total),
     pbr_mat:sdiv(pbr_mat:sadd(AR,pbr_mat:smul(Refl,CS*K)), Count).
+    %% case CC > CS of
+    %% 	true -> {0.0,0.0,1.0};
+    %% 	false -> {1.0,1.0,1.0}
+    %% end.
+	     

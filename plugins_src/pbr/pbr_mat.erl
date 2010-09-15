@@ -8,7 +8,7 @@
 
 -module(pbr_mat).
 
--export([snew/0, sdiv/2, smul/2, sadd/2, sY/1,
+-export([snew/0, sdiv/2, smul/2, sadd/2, sY/1, s_is_black/1, to_rgb/1,
 	 init/1,
 	 sample_f/4, f/4, lookup/3, is_light/1, is_diffuse/1]).
 -include("pbr.hrl").
@@ -37,6 +37,20 @@ sadd({R,G,B}, {X,Y,Z})
 
 sY({R,G,B}) ->
     0.212671 * R + 0.715160 * G + 0.072169 * B.
+
+s_is_black({R,G,B}) 
+  when R > 0.0; G > 0.0; B > 0.0 ->
+    false;
+s_is_black(_) -> 
+    true.
+
+to_rgb(Spectrum) ->
+    RW = { 3.240479, -1.537150, -0.498535},
+    GW = {-0.969256,  1.875991,  0.041556},
+    BW = { 0.055648, -0.204043,  1.057311},
+    {e3d_vec:dot(RW, Spectrum),
+     e3d_vec:dot(GW, Spectrum),
+     e3d_vec:dot(BW, Spectrum)}.
 
 %%%%%%%%%%%
 

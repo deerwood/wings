@@ -32,13 +32,18 @@ set_raw(Raw, R = #renderer{film=F}) ->
 splat(Index, Splat, Raw) ->
     array:set(Index, Splat, Raw).
 
+clamp255(C) when C > 255.0 -> 255;
+clamp255(C) when C < 0.0 -> 0;
+clamp255(C) -> round(C).
+
 %%% Move to film
 show(#renderer{film=#f{raw=Raw, res={W,H}}}) ->
-    Pixels = array:foldl(fun(_, {R,G,B}, Acc) ->
+    Pixels = array:foldl(fun(_, Intensity, Acc) ->
+				 {R,G,B} = pbr_mat:to_rgb(Intensity),
     				 <<Acc/binary, 
-    				   (trunc(255*R)):8,
-    				   (trunc(255*G)):8, 
-    				   (trunc(255*B)):8,
+    				   (clamp255(255.0*R)):8,
+    				   (clamp255(255.0*G)):8, 
+    				   (clamp255(255.0*B)):8,
 				   255:8>>
     			 end, <<>>, Raw),
     Image = #e3d_image{image=Pixels,width=W,height=H, 

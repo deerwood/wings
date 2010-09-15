@@ -37,15 +37,6 @@ init(HPs, MaxDist, {Min = {Nx,Ny,Nz},{Xx,Xy,Xz}}) ->
     Grid0 = pbr_hp:fold_surface(Add, array:new({default,[]}), HPs),
 
     Grid = #grid{bbMin = Min, invCellSz = InvCellSz, maxIndx = MaxI, grid = Grid0},
-
-    Sz = array:size(HPs),
-    HitPoint = array:get(Sz div 2, HPs),
-    io:format("HitP ~p~n",[HitPoint]),
-    Pos = element(2, HitPoint),
-    
-    L = nearest(Pos, Grid),
-    io:format("member ~p", [lists:member(Sz div 2, L)]),
-    
     Grid.
 
 nearest(Point, #grid{bbMin=Min, invCellSz=InvCellSz, maxIndx=MaxI={Mx,My,Mz}, grid=Grid}) ->

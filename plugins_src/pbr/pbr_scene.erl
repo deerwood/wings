@@ -118,14 +118,11 @@ get_face_info(#ray{o=RayO,d=RayD},T,B1,B2,FId,
     end.
 
 intersect({NoRays, RaysBin}, #renderer{scene=Scene, cl=CL}) ->
-    {Kernel, Qn, Qt, WGSz} = Scene#scene.isect,
-    Context = pbr_cl:get_context(CL),
-    {ok, Rays} = cl:create_buffer(Context, [read_only],  
-				  byte_size(RaysBin), RaysBin),
+    {Kernel, Qn, Qt, Rays, Hits, WGSz} = Scene#scene.isect,
+    Wait = pbr_cl:write(CL, Rays, NoRays*?RAY_SZ, RaysBin),
     HitSz = NoRays * ?RAYHIT_SZ,
-    {ok, Hits} = cl:create_buffer(Context, [write_only], HitSz),
     Args = [Rays,Hits,Qn,Qt, NoRays, {local,24*WGSz*4}],
-    Running = pbr_cl:run(CL, ?MAX_RAYS, WGSz, Kernel, Args, {Hits, HitSz}),
+    Running = pbr_cl:run(CL, ?MAX_RAYS, WGSz, Kernel, Args, {Hits, HitSz}, [Wait]),
     {ok, <<Result:HitSz/binary, _/binary>>} = cl:wait(Running, 1000),
     {Rays, Result}.
 
@@ -186,12 +183,14 @@ init_accel(CL, {_BB, Qnodes, Qtris, _Map}, Scene) ->
     Copy = [read_only, copy_host_ptr],
     {ok,QN} = cl:create_buffer(Context, Copy, byte_size(Qnodes), Qnodes),
     {ok,QT} = cl:create_buffer(Context, Copy, byte_size(Qtris), Qtris),
+    {ok,Rays} = cl:create_buffer(Context, [read_write],  ?RAYBUFFER_SZ),
+    {ok,Hits} = cl:create_buffer(Context, [write_only], ?RAYHIT_SZ*?MAX_RAYS),
     {ok,Local} = cl:get_kernel_workgroup_info(Kernel, Device, work_group_size),
     {ok,Mem} = cl:get_kernel_workgroup_info(Kernel, Device, local_mem_size),
     
     io:format("Scene: WG ~p LMem ~p~n",[Local,Mem]),
     
-    Scene#scene{isect={Kernel, QN, QT, 64}}.
+    Scene#scene{isect={Kernel, QN, QT, Rays, Hits, 64}}.
 
 i_col(B0,B1,B2, {{V1x,V1y,V1z}, {V2x,V2y,V2z}, {V3x,V3y,V3z}}) 
   when is_float(B0), is_float(B1), is_float(B2),

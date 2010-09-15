@@ -14,7 +14,7 @@
 
 -export([init/2, stop/1,
 	 get_context/1, get_device/1,
-	 compile/2, run/6]).
+	 compile/2, write/4, run/7]).
 
 -record(cli, 					% Cache some info
 	{cl,					% CL context
@@ -58,10 +58,15 @@ get_context(#cli{cl=#cl{context=Context}}) ->
 get_device(#cli{cl=#cl{devices=[Device|_]}}) -> 
     Device.
 
-run(#cli{queue=Q}, Global, Local, Kernel, Args, {Out, OutSz}) ->
+write(#cli{queue=Q}, Store, Size, Bin) ->
+    {ok, Wait} = cl:enqueue_write_buffer(Q, Store, 0, Size, Bin, []),
+    Wait.
+
+run(#cli{queue=Q}, Global, Local, Kernel, Args, {Out, OutSz}, Wait) ->
     clu:apply_kernel_args(Kernel, Args),
     {ok, Run} = cl:enqueue_nd_range_kernel(Q, Kernel,[Global],[Local],[]),
-    {ok, Done} = cl:enqueue_read_buffer(Q, Out,0, OutSz, [Run]),
+    {ok, Done} = cl:enqueue_read_buffer(Q, Out,0, OutSz, [Run|Wait]),
+    [cl:release_event(Ev) || Ev <- [Run|Wait]],
     Done.
 
 stop(#renderer{cl=#cli{cl=CL}}) ->

@@ -47,14 +47,21 @@ do_export(Ask, _St) when is_atom(Ask) ->
 		       {file, {render, {?TAG, Res}}}
 	       end);
 do_export(Attr, St) when is_list(Attr) ->
-    set_prefs(Attr),
-    %% Add Camera, lights to list
-    CameraAttr = [pos_dir_up, fov, hither, yon],
-    CV = wpa:camera_info(CameraAttr),
-    CameraInfo = lists:zip(CameraAttr, CV),
-    All = [{cam,CameraInfo}, 
-	   {lights, wpa:lights(St)} | Attr],
-    render(St, All).
+    case whereis(wings_preview) of
+	undefined ->
+	    set_prefs(Attr),
+	    %% Add Camera, lights to list
+	    CameraAttr = [pos_dir_up, fov, hither, yon],
+	    CV = wpa:camera_info(CameraAttr),
+	    CameraInfo = lists:zip(CameraAttr, CV),
+	    All = [{cam,CameraInfo}, 
+		   {lights, wpa:lights(St)} | Attr],
+	    render(St, All);
+	Pid ->
+	    io:format("Render STOP requested, patience~n",[]),
+	    Pid ! stop,
+	    keep
+    end.
 
 export_dialog() ->
     wpa:pref_set_default(?MODULE, default_filetype, ".png"),

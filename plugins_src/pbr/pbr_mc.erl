@@ -22,7 +22,7 @@ sample_hemisphere(U1,U2) ->
     Z = U1,
     R = math:sqrt(max(0.0, 1.0 - Z*Z)),
     Phi = 2*?PI * U2,
-    {R * math:cos(Phi), R*math:sin(Phi), Z}.
+    e3d_vec:norm({R * math:cos(Phi), R*math:sin(Phi), Z}).
 hemisphere_pdf() ->
     ?INV_PI.
 
@@ -32,7 +32,7 @@ sample_sphere(U1, U2) ->
     Phi = 2.0 * ?PI * U2,
     X = R * math:cos(Phi),
     Y = R * math:sin(Phi),
-    {X, Y, Z}.
+    e3d_vec:norm({X, Y, Z}).
 sphere_pdf() ->
     (1 / 4) * ?INV_PI.
 
@@ -40,7 +40,7 @@ sample_cone(U1,U2,CosThetaMax) ->
     CosTheta = (1.0 - U1) + U1 * CosThetaMax,
     SinTheta = math:sqrt(1.0 - CosTheta*CosTheta),
     Phi = U2 * 2.0 * ?PI,
-    {math:cos(Phi) * SinTheta, math:sin(Phi) * SinTheta, CosTheta}.
+    e3d_vec:norm({math:cos(Phi) * SinTheta, math:sin(Phi) * SinTheta, CosTheta}).
 cone_pdf(CosThetaMax) ->
     1.0 / (2.0 * ?PI * (1.0 - CosThetaMax)).
 
