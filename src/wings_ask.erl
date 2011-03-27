@@ -2639,7 +2639,7 @@ mktree_panel(Sto, I, Flags) ->
 
 mktree_value(Value, Sto, I, Flags) ->
     Fi = #fi{key=Key} = 
-	mktree_leaf(fun value_event/3, disabled, undefined, 0, 0, I, Flags),
+	mktree_leaf(fun value_event/3, disabled, undefined, 0, 0, I, [no_focus|Flags]),
     mktree_priv(Fi, gb_trees:enter(var(Key, I), Value, Sto), I, #value{}).
 
 value_event(value, [#fi{key=Key,index=I}|_], Store) ->
